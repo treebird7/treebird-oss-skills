@@ -120,8 +120,12 @@ Then dispatch with `--sandbox workspace-write` and do your half concurrently.
 
 ## Phase 4 — land it
 
-1. **Second `git status` a few seconds after the first.** `workspace-write` can flush
-   files after the dispatch reports success. Identical snapshots = safe to commit.
+1. **Wait for the writer to exit, then compare content hashes — not `git status` text.**
+   Two `git status` runs do not prove stability: a file already listed ` M src/auth.ts`
+   that a late writer changes again is still ` M src/auth.ts`. Identical output, different
+   bytes. Verified 2026-08-03 — same porcelain across a modification, different `shasum`.
+   An exited process cannot flush more writes, so waiting is the real guarantee; hash the
+   owned files as the backstop for anything it orphaned.
 2. **One build for both halves.**
 3. **Mutation-check its tests too**, not just your own. Break what the test claims to
    guard, confirm red, restore.

@@ -1,7 +1,7 @@
 {
   "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
   "name": "treebird-oss-skills",
-  "description": "Public Claude Code skills from the Treebird flock — cross-model workflows for driving and cross-checking OpenAI Codex from Claude Code",
+  "description": "Public Claude Code skills from the Treebird flock \u2014 cross-model workflows for driving and cross-checking OpenAI Codex from Claude Code",
   "owner": {
     "name": "treebird7",
     "url": "https://github.com/treebird7"
@@ -25,8 +25,8 @@
     {
       "name": "skill-clodex",
       "source": "./plugins/skill-clodex",
-      "description": "Bounded Claude-to-Codex peer-review loop — two models argue a question to a verdict, and unresolved disagreements escalate to the human",
-      "version": "1.0.0",
+      "description": "Bounded Claude-to-Codex peer-review loop \u2014 two models argue a question to a verdict, and unresolved disagreements escalate to the human",
+      "version": "1.0.1",
       "category": "development",
       "homepage": "https://github.com/treebird7/treebird-oss-skills",
       "tags": [
