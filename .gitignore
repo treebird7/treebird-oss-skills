@@ -1,0 +1,5 @@
+.DS_Store
+
+# NOTE: never add a bare `skills/` rule here. It matches at ANY depth and would
+# silently swallow every plugin's skill directory (plugins/*/skills/<name>/SKILL.md),
+# so the skills would appear committed locally but be absent from the repo.

@@ -1,0 +1,22 @@
+{
+  "name": "skill-codex",
+  "description": "Claude Code skill to delegate prompts to the OpenAI Codex CLI for code analysis, refactoring, code review, and automated editing",
+  "version": "2.0.0",
+  "author": {
+    "name": "treebird7",
+    "url": "https://github.com/treebird7"
+  },
+  "homepage": "https://github.com/treebird7/treebird-oss-skills",
+  "repository": "https://github.com/treebird7/treebird-oss-skills",
+  "license": "MIT",
+  "keywords": [
+    "claude-code",
+    "plugin",
+    "skill",
+    "codex",
+    "openai",
+    "automation",
+    "code-review",
+    "refactoring"
+  ]
+}

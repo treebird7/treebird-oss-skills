@@ -1,0 +1,23 @@
+{
+  "name": "skill-clodex",
+  "description": "Claude Code skill that runs a bounded Claude-to-Codex peer-review loop, surfacing model disagreements instead of smoothing them over",
+  "version": "1.0.0",
+  "author": {
+    "name": "treebird7",
+    "url": "https://github.com/treebird7"
+  },
+  "homepage": "https://github.com/treebird7/treebird-oss-skills",
+  "repository": "https://github.com/treebird7/treebird-oss-skills",
+  "license": "MIT",
+  "keywords": [
+    "claude-code",
+    "plugin",
+    "skill",
+    "codex",
+    "openai",
+    "code-review",
+    "peer-review",
+    "multi-model",
+    "adversarial-review"
+  ]
+}
