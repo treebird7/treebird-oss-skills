@@ -46,6 +46,16 @@ environment, lifecycle: where a logic-checking pass structurally cannot reach.
   obvious one?
 - What does the new code log, serialize, or persist that it did not before?
 
+Aim it away from your *method*, never your *findings* — withhold nothing you found;
+the full trade happens before negotiation.
+
+If you send a known-issues list, scope each item by **mechanism and exact bounds**,
+never by topic, and append: *"if something resembles a known item but the mechanism
+or outcome differs, report it anyway."* A topic-shaped suppression ("TOFU protects
+nothing before first enrolment") once absorbed a genuinely different concurrent-
+enrolment race as a non-finding — it came back reading *checked and clear*. Worse
+than not asking.
+
 Demand in the reply:
 
 | | |
@@ -85,12 +95,21 @@ engaging your evidence, that's **Unproven**, not Discounted. If *you* start agre
 without new evidence, stop and re-read the source. Verdicts move when the evidence
 moves, not when the other side sounds certain.
 
+**Non-findings are claims too.** Each must state scope, method, and the paths it
+examined; sample-check them like findings. "Checked and clear" without a method is
+"didn't look" wearing a verdict.
+
 **Zero findings is a signal, not a pass.** Say so out loud, and treat it as evidence
 you may have reviewed the summary instead of the code.
 
 ## Phase 3 — negotiate the contract. Do not dispatch it.
 
-Send scope-downs *and* disagreements. Demand objections:
+**First, the reciprocal ledger.** Send it your own findings and require it to classify
+each with the same three verdicts, with evidence — exactly what Phase 2 did to its
+claims. The frontmatter's "each verifies the other's claims" *is* this step; skip it
+and the protocol is one-directional review with extra ceremony.
+
+Then send scope-downs *and* disagreements. Demand objections:
 
 > "Push back where you disagree — I want your objections, not agreement.
 > Answer with: (a) accept or counter-proposal, (b) objections to my scope-downs,
@@ -112,7 +131,7 @@ Contract must state:
 | **File sets** | Disjoint. Both parties write the same worktree in parallel; overlap means collision. |
 | **Scope per finding** | Named constraints, not a finding number. "Do X inside function Y, no wrapper, no caller changes" — otherwise you get 15 interface methods where 2 lines would do. |
 | **Hands off** | Explicit files the other party must not touch. |
-| **Tests** | Add only. Never delete or rewrite existing tests — Codex silently drops cases otherwise. |
+| **Tests** | Add only — a model-neutral invariant; any writer can drop cases by mistake. A genuinely invalid existing test gets flagged to the orchestrator, not rewritten. Add-only does not stop semantic disabling via fixtures or config — mutation-check those too. |
 | **Builds** | Exactly one party builds. Two daemons in one worktree contend on locks. |
 | **Commits** | Orchestrator commits both halves. Keeps history and attribution coherent. |
 
@@ -126,17 +145,21 @@ Then dispatch with `--sandbox workspace-write` and do your half concurrently.
    bytes. Verified 2026-08-03 — same porcelain across a modification, different `shasum`.
    An exited process cannot flush more writes, so waiting is the real guarantee; hash the
    owned files as the backstop for anything it orphaned.
-2. **One build for both halves.**
-3. **Mutation-check its tests too**, not just your own. Break what the test claims to
-   guard, confirm red, restore.
-4. **Name what no test covers** — at the line, with what breaks if it is deleted. A
+2. **Report deviations — before the build, before the commit.** Departed from the
+   contract? Say so now and let it object, one bounded round. Discovering a broken
+   contract *after* committing leaves no gate and no rollback rule. In the origin run
+   the migration path was made to log rather than throw, against contract, because
+   the caller's startup coroutine was unguarded — the second reviewer agreed, on
+   sharper reasoning than the original.
+3. **One build for both halves.**
+4. **Mutation-check its tests too**, not just your own. Break what the test claims to
+   guard, confirm red, restore — **and hash the file after the restore.** Per step 1,
+   `git status` cannot see an unrestored constant; only the hash proves the mutation
+   actually came back out.
+5. **Name what no test covers** — at the line, with what breaks if it is deleted. A
    gate that cannot fail must not read as coverage.
-5. **One commit per file set**, so attribution is honest. Credit the second reviewer
+6. **One commit per file set**, so attribution is honest. Credit the second reviewer
    in the body for what it found.
-6. **Report deviations back.** Departed from the contract? Say so and let it object.
-   In the origin run the migration path was made to log rather than throw, against
-   contract, because the caller's startup coroutine was unguarded — the second
-   reviewer agreed, on sharper reasoning than the original.
 
 ## Honest limits
 
