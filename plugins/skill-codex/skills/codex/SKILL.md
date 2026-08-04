@@ -16,21 +16,32 @@ codex login status 2>&1
 **If not logged in**, recover using one of:
 
 ```bash
-# Option 1 — API key, headless (preferred for automation)
-# Source OPENAI_API_KEY from your own secret manager; never inline the literal key,
-# and never echo it into a shell the user can see.
-printenv OPENAI_API_KEY | codex login --with-api-key
-
-# Option 2 — Device auth (opens a browser)
+# Option 1 — Device auth (preferred; no secret ever touches argv)
 codex login --device-auth
 
-# Option 3 — Interactive ChatGPT login (requires a real terminal)
+# Option 2 — Interactive ChatGPT login (requires a real terminal)
 # Tell the user to run it themselves: ! codex login
+
+# Option 3 — API key, headless. Feed it on STDIN, never as an argument.
+printenv OPENAI_API_KEY | codex login --with-api-key
 ```
 
 If login fails mid-run (non-zero exit plus an auth error in the output), run the
 recovery above once, then retry. Do **not** loop — if it fails twice, stop and ask
 the user.
+
+**Never put a secret where a shell can expand it into `argv`.** A wrapper of the
+shape `some-tool --key "$(cat ~/.secrets/key)"` expands *before* exec, so the key's
+literal contents become a command-line argument — readable by any process the same
+user can run (`ps -eo args`), and often captured in shell history and process
+accounting. Masking options on such tools typically cover the child's stdout/stderr
+and do not touch argv. Pass secrets on stdin (as Option 3 does) or via an
+environment variable the tool reads itself.
+
+**Do not silently switch auth method.** Falling back from a ChatGPT session to an
+API key can move usage onto API billing and change which account you are acting as
+— and the two sign-in modes do not expose the same model list, so a slug that
+"disappeared" may just be one the current mode never offered. Ask before changing it.
 
 > **Note on model availability:** ChatGPT sign-in and API-key sign-in do not expose the
 > same model list, and the deprecations in **Models** below are specifically scoped to

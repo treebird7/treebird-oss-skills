@@ -67,14 +67,29 @@ Demand in the reply:
 | **Falsifier** | "What would show you're wrong?" Makes Phase 2 cheap and Phase 3 tractable. |
 
 ```bash
-codex -a never exec --ignore-user-config --skip-git-repo-check \
-  -m <model> --config model_reasoning_effort="high" \
-  --sandbox read-only -C <worktree> "<prompt>" 2>/dev/null
+codex -a never exec --ignore-user-config \
+  -m <model> --config model_reasoning_effort="<effort>" \
+  --sandbox read-only -C <worktree> "<prompt>" 2>/tmp/clodex-review.err
 ```
 
-Flag rationale: `/codex`. Model + effort in one `AskUserQuestion`; current slugs in
-`/codex` → Models. Prefer a different model family than your own reasoning. Never
-`codex-auto-review` — a guardian model, not a reviewer you dispatch to.
+**Mechanics live in `/codex`. If this command and `/codex` disagree, `/codex` wins.**
+Flag positions, the current model table and per-model effort defaults, the hang modes,
+and stderr handling are maintained there and change when the CLI changes. What stays
+clodex's call is only the review policy: `read-only` here, `workspace-write` in Phase 3,
+`-C <worktree>`, a different model family from your own reasoning, and never
+`codex-auto-review` — a guardian model, not a reviewer you dispatch to. Ask model and
+effort together in one `AskUserQuestion`.
+
+Two things this command deliberately does *not* do:
+
+- **No `--skip-git-repo-check`.** `-C <worktree>` is a git worktree, so the flag is never
+  needed here, and passing it disables the guard that makes Codex refuse to run outside
+  a git repo — where nothing it changes is revertible — for nothing.
+- **stderr goes to a file, never `/dev/null`.** It carries the resolved sandbox, the model
+  actually selected, and any deprecation warning. Discarding it while Phase 2 tells you to
+  verify every claim means throwing away the only evidence of what your second reviewer
+  actually ran under. Read it whenever a dispatch exits non-zero or returns something
+  surprising.
 
 ## Phase 2 — verify every claim before relaying one
 

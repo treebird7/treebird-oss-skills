@@ -27,8 +27,10 @@ one to *disagree* with it.
 /plugin install skill-clodex@treebird-oss-skills
 ```
 
-`/clodex` calls into `/codex` for pre-flight login and error handling, so install both
-if you want the peer-review loop.
+`/clodex` calls into `/codex` for pre-flight login, error handling, and the Codex CLI
+flag/model mechanics, so `skill-clodex` declares `skill-codex` as a plugin dependency.
+Installing `skill-clodex` pulls `skill-codex` in with it — the line above is there so
+you can install `/codex` on its own, not because you must install both by hand.
 
 ### Option 2 — Standalone skills
 

@@ -1,7 +1,7 @@
 {
   "name": "skill-codex",
   "description": "Claude Code skill to delegate prompts to the OpenAI Codex CLI for code analysis, refactoring, code review, and automated editing",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "author": {
     "name": "treebird7",
     "url": "https://github.com/treebird7"

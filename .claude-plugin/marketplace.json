@@ -11,7 +11,7 @@
       "name": "skill-codex",
       "source": "./plugins/skill-codex",
       "description": "Delegate prompts to the OpenAI Codex CLI for code analysis, refactoring, code review, and automated editing",
-      "version": "2.0.0",
+      "version": "2.0.1",
       "category": "development",
       "homepage": "https://github.com/treebird7/treebird-oss-skills",
       "tags": [
@@ -26,7 +26,7 @@
       "name": "skill-clodex",
       "source": "./plugins/skill-clodex",
       "description": "Bounded Claude-to-Codex peer-review loop \u2014 two models argue a question to a verdict, and unresolved disagreements escalate to the human",
-      "version": "1.1.0",
+      "version": "1.2.0",
       "category": "development",
       "homepage": "https://github.com/treebird7/treebird-oss-skills",
       "tags": [
