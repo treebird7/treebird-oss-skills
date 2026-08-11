@@ -134,9 +134,11 @@ What it covers that a policy review doesn't:
   reading the tenant id from there lets any user mint themselves membership of any tenant,
   and it reviews clean because it looks exactly like the correct pattern. The skill traces
   every tenant predicate back to its source and classifies it trusted or not.
-- **Write policies** — a `WITH CHECK`-less `INSERT`/`UPDATE` policy means read is scoped and
-  write is not: you can insert rows into another tenant, or move your own row into theirs.
-  Read-only test suites never catch it.
+- **Write policies** — the *effective* write check is `coalesce(with_check, qual)`, since
+  PostgreSQL reuses `USING` when `WITH CHECK` is omitted on `UPDATE`/`ALL`. The leak is a
+  `USING` expression that reads fine but checks weakly: `user_id = auth.uid()` reused as a
+  write check still lets you rewrite `tenant_id`, because you stay the owner. Read-only test
+  suites never catch any of it.
 - **Permissive-OR** — a narrow policy does not constrain a broad one beside it, so a
   `DROP POLICY IF EXISTS` with a stale name is a silent no-op that leaves the leak live.
 - **The surfaces nobody audits** — `SECURITY DEFINER` RPCs (anon-callable by default),
@@ -146,7 +148,7 @@ What it covers that a policy review doesn't:
   unique-constraint violations whose error text confirms another tenant's row exists.
 
 And the part that separates it from every checklist: **Check 7, the two-tenant matrix.**
-Everything else *inspects*; this *demonstrates*. Two real tenants, twelve cases, anon key only
+Everything else *inspects*; this *demonstrates*. Two real tenants, fifteen cases, anon key only
 — never the service role, which carries `BYPASSRLS` and makes every case pass while proving
 nothing. If the run didn't happen, the report has to say `ISOLATION DEMONSTRATED: no
 (static only)` instead of implying the project is safe.
@@ -161,7 +163,7 @@ Design constraints worth knowing:
   transcript *is* the breach you're reporting.
 - **Bound the blast radius.** Findings are reported with a verified-clean perimeter, because
   a finding without one turns into a week of undirected panic.
-- **Check 8 exists because audits decay.** It proposes a CI gate — five catalog queries that
+- **Check 8 exists because audits decay.** It proposes a CI gate — six allowlist-diffed catalog rules that
   must each return zero rows — so the table added next month can't quietly reintroduce
   what you just fixed.
 
@@ -223,7 +225,7 @@ Issues and PRs welcome, particularly:
 - Real transcripts where `/clodex` caught something a single-model review missed — or
   where it rubber-stamped something it shouldn't have. The skill is encoded from a small
   number of runs and says so; more evidence is the most useful contribution.
-- **New cases for the `/rls-audit` tenant matrix.** A leak found by hand that the ten
+- **New cases for the `/rls-audit` tenant matrix.** A leak found by hand that the fifteen
   standing cases missed is the single most valuable contribution to that skill — a case
   costs one line and then runs forever. `tenant-matrix.md` lists the candidates already
   suspected but not yet written up.

@@ -40,6 +40,30 @@ Needs a linked project (`supabase link`) or equivalent read access. Without one,
 `--static` and report Checks 3, 7, 8 as ⚪ skipped — do **not** silently downgrade to a
 source-only review and call it an audit.
 
+### Resolve the exposed schemas first
+
+Every query below filters on schema. **Resolve the set once, at the top of the run, and reuse
+it** — the audit claims to cover every exposed schema, and a query hardcoded to `public`
+silently skips a `SECURITY DEFINER` RPC or an unprotected table living in `api`, `app`, or a
+versioned `v1` schema.
+
+```sql
+-- PostgREST's own view of what it serves (preferred — it is the actual config)
+select current_setting('pgrst.db_schemas', true) as exposed;
+```
+
+If that returns NULL (not set at the role level), read `db-schemas` from Dashboard →
+Settings → API and pin it explicitly for the rest of the session:
+
+```sql
+set rls_audit.exposed_schemas = '{public}';   -- replace with the real list
+```
+
+Then every query uses `n.nspname = any (current_setting('rls_audit.exposed_schemas')::text[])`
+rather than `= 'public'`. The queries in this document are written with `public` inline for
+readability — **substitute the resolved set** when you run them, and say in the report which
+schemas were covered. `public` is a default, not a finding.
+
 ### What this audit assumes
 
 **Clients reach the database only through PostgREST, Storage, Realtime, and Edge
@@ -81,8 +105,9 @@ finding alone. Say what you checked and found safe, not only what's broken.
 ## Check 1: advisor_baseline
 
 Cheapest pass, run it first. Supabase ships a security linter; don't hand-derive what it
-already knows. Dashboard → Advisors → Security, or `get_advisors(type: "security")` via the
-Supabase MCP server.
+already knows. Dashboard → Advisors → Security, `supabase db advisors --linked --type security`,
+or `get_advisors(type: "security")` via the Supabase MCP server. Not `supabase inspect db` —
+that reports bloat/index/query stats, not advisor lints.
 
 Lints that matter here: `rls_disabled_in_public`, `policy_exists_rls_disabled`,
 `rls_enabled_no_policy`, `security_definer_view`, `function_search_path_mutable`,
@@ -175,11 +200,33 @@ order by tablename, cmd, policyname;
 ### ❌ Error-level
 - **`qual = 'true'` on SELECT for a tenant-scoped table** — the anon key is a full read of
   that table.
-- **A write command with `with_check IS NULL`** (`cmd` in `INSERT`, `UPDATE`, `ALL`). The
-  single highest-yield finding in this skill: read is scoped, write is not. The caller can
-  `INSERT` rows carrying another tenant's id, and on `UPDATE` can move an existing row *out
-  of* their tenant and into another. **A read-only test suite never sees it**, which is why
-  it survives so long in real projects.
+- **A write policy whose *effective* check doesn't constrain the tenant column.** Compute the
+  effective write predicate as `coalesce(with_check, qual)` — **not** `with_check IS NULL`:
+
+  ```sql
+  select tablename, policyname, cmd,
+         coalesce(with_check, qual) as effective_write_check,
+         (with_check is null) as reuses_using
+  from pg_policies
+  where schemaname = 'public' and cmd in ('INSERT','UPDATE','ALL')
+  order by tablename, cmd;
+  ```
+
+  For `UPDATE` and `ALL`, omitting `WITH CHECK` is **not** a hole on its own: PostgreSQL
+  reuses the `USING` expression as the check on the new row. So an UPDATE policy of
+  `USING (tenant_id = current_tenant())` with no `WITH CHECK` already rejects a cross-tenant
+  move. `INSERT` is the case with no `USING` to fall back on.
+
+  The real leak is a `USING` expression that is a fine *read* filter but a weak *write*
+  filter, silently promoted into that role. `USING (user_id = auth.uid())` on a row that also
+  carries `tenant_id` reuses cleanly and still lets you rewrite `tenant_id` — you remain the
+  owner, so the reused check passes. Read every `effective_write_check` and ask one question:
+  **does this expression pin the tenant column?** If not, it's ❌ regardless of which clause
+  it came from.
+
+  *(Corrected 2026-08-11 — an earlier revision of this skill flagged `with_check IS NULL`
+  outright, which over-reports every correctly-written `UPDATE` policy and misses the
+  reused-but-too-weak `USING`. The gate rule below changed with it.)*
 - **Two policies on the same table + command where one is broad.** RLS is **permissive-OR**:
   a narrow policy does not constrain a broad one sitting beside it. A tightening migration
   written as `DROP POLICY IF EXISTS "<name>"` whose name doesn't match the live policy is a
@@ -294,7 +341,7 @@ caller reach a privileged action."**
 | **1 · param-identity** | takes a tenant/user id as a **parameter** and uses it in `WHERE`/`INSERT`/`UPDATE` with no `caller ∈ tenant` check | ❌ **critical** — pass any tenant id, get any tenant's data. RLS is bypassed, so nothing else stops it. |
 | **2 · unguarded privileged write** | definer + write to a sensitive table (roles, credits, subscriptions), no caller authorization, reachable by `authenticated`/`anon` | ❌ **critical** — forgery / privilege escalation |
 | **3 · session-identity** | tenant derived **solely** from `(SELECT auth.uid())` or a server-controlled claim, every read and write scoped to it | 🟢 **safe** even if `PUBLIC`-callable — `anon` gets zero rows. Missing `REVOKE` is ℹ️ hygiene. |
-| **4 · trigger function** | `RETURNS TRIGGER`, not reachable as `/rpc` | ⚪ n/a on this axis; still needs `search_path` |
+| **4 · trigger function** | `RETURNS TRIGGER`, not reachable as `/rpc` | ⚪ on the *call* axis — but see the confused-deputy note below; still needs `search_path` |
 
 Fix for bucket 1: guard with
 `IF p_target IS DISTINCT FROM (SELECT auth.uid()) AND coalesce((SELECT auth.role()),'') <> 'service_role' THEN RAISE EXCEPTION 'forbidden'; END IF;`
@@ -305,8 +352,28 @@ Fix for bucket 1: guard with
 every un-revoked function critical buries the bucket-1 hole that is the actual breach.
 
 Also ❌ here:
-- **`SECURITY DEFINER` with no `SET search_path`** (`proconfig IS NULL`) — search-path
-  hijack. Needs `SET search_path = pg_catalog, public`, with `pg_catalog` first.
+- **`SECURITY DEFINER` with no pinned `search_path`.** Detect it by looking for the entry,
+  not by `proconfig IS NULL` — a function with `SET statement_timeout` has a non-null
+  `proconfig` and no `search_path` at all:
+  ```sql
+  select p.proname, p.proconfig
+  from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+  where n.nspname = 'public' and p.prosecdef
+    and not exists (
+      select 1 from unnest(coalesce(p.proconfig, '{}')) e where e like 'search_path=%'
+    );
+  ```
+  **Do not blanket-recommend `search_path = pg_catalog, public`.** Two problems with it:
+  `public` is writable on many projects (Check 4b's `CREATE` query tells you whether it is
+  here), and `pg_temp` is searched **implicitly for tables and views even when unlisted**, so
+  a temp table can shadow a name the function relies on. Prefer, in order:
+  1. `SET search_path = ''` and schema-qualify every reference in the body. Verbose, and the
+     only form with nothing left to resolve.
+  2. `SET search_path = pg_catalog, <specific trusted schema>, pg_temp` — naming `pg_temp`
+     **last** so it stops being searched first.
+
+  Read the actual entry rather than checking for presence: a pinned path that starts with
+  `"$user"`, or lists a schema anyone can create in, is the same hijack with a green tick.
 - **`REVOKE … FROM anon` without also revoking `PUBLIC`** — a no-op, since `anon` inherits
   `EXECUTE` through `PUBLIC`. The pattern must be `REVOKE … FROM PUBLIC, anon`.
 - **Dynamic SQL** (`EXECUTE format(…)`) with interpolated identifiers or values not passed
@@ -350,6 +417,35 @@ only widens the RPC surface. PostgREST excludes `RETURNS TRIGGER` functions from
 cache, so this is hygiene rather than an exposed endpoint; **verify against your own
 PostgREST version** before downgrading or escalating it.
 
+**Bucket 4 is not automatically safe — it is only un-*callable*.** "Not reachable as
+`/rpc`" answers the wrong question. A `SECURITY DEFINER` trigger on a table users can write
+runs with owner privileges on **input the user chose**, which is a confused deputy: B inserts
+a row into a table B legitimately owns, the trigger fires as owner, and whatever it does next
+— writing an audit row, updating a counter on a parent, fanning out a notification, copying a
+field into another table — happens with RLS switched off and a value B supplied.
+
+For each definer trigger, ask what it *writes* and whether any user-supplied column reaches
+that write:
+
+```sql
+select t.tgname, c.relname as on_table, p.proname, p.prosecdef,
+       has_table_privilege('authenticated', c.oid, 'insert') as user_can_insert,
+       has_table_privilege('authenticated', c.oid, 'update') as user_can_update
+from pg_trigger t
+join pg_class c on c.oid = t.tgrelid
+join pg_proc  p on p.oid = t.tgfoid
+join pg_namespace n on n.oid = c.relnamespace
+where not t.tgisinternal and p.prosecdef
+  and n.nspname = 'public'
+order by c.relname, t.tgname;
+```
+
+❌ when a definer trigger on a user-writable table writes to a table the user could not write
+directly, using a value from `NEW`. The fix is almost never to drop the trigger — it is to
+re-derive the sensitive columns inside it (`auth.uid()`, a membership lookup) instead of
+trusting `NEW`.
+
+
 ### 4c · Grants — the drift surface
 
 The migration tree is intent; the grant tables are truth. Grants get hand-edited in the SQL
@@ -381,6 +477,37 @@ group by 1,2;
 - A live grant no migration accounts for — an untracked manual change. Reconcile it into a
   migration or revoke it; either way it must stop being invisible.
 
+#### ❌ Error-level — the two privileges RLS does not govern
+
+`TRUNCATE` and `REFERENCES` are **not** filtered by row-level security. A policy that
+perfectly scopes `DELETE` to one tenant does nothing about `TRUNCATE`, which removes every
+row in the table for everyone. `REFERENCES` lets the grantee create a foreign key against the
+table, which is an existence oracle by construction (see matrix case 13) and can block A's
+deletes from B's schema.
+
+```sql
+select table_schema, table_name, grantee, privilege_type
+from information_schema.role_table_grants
+where privilege_type in ('TRUNCATE','REFERENCES')
+  and grantee not in ('postgres')            -- plus your platform-owned roles
+order by 1,2,3;
+```
+
+Check **inherited** grants too — `authenticated` may hold these through a role it is a member
+of rather than directly, and `role_table_grants` shows the grantee as named:
+
+```sql
+select r.rolname as member, g.rolname as inherits_from
+from pg_auth_members m
+join pg_roles r on r.oid = m.member
+join pg_roles g on g.oid = m.roleid
+where r.rolname in ('anon','authenticated','authenticator');
+```
+
+Any `TRUNCATE` or `REFERENCES` reaching `anon`/`authenticated`, directly or by inheritance,
+is ❌. `GRANT ALL` is the usual source, and it is why `GRANT ALL` should never appear on a
+tenant table.
+
 #### ⚠️ Warning-level
 - `GRANT … ON ALL TABLES IN SCHEMA public TO anon, authenticated` or
   `ALTER DEFAULT PRIVILEGES … TO anon` anywhere in the tree — **every future table is
@@ -394,10 +521,20 @@ The service role carries `BYPASSRLS`. Nothing in this skill protects you from it
 controls are that it never reaches a client, and that every server path using it filters by
 tenant *in code*.
 
-- Grep the shipped client bundle, mobile app, and every `NEXT_PUBLIC_*` / `VITE_*` /
-  `EXPO_PUBLIC_*` variable for a service-role key — decode the JWT's payload segment and
-  read its `role` claim rather than eyeballing the prefix. ❌ if found, and the key must be
-  **rotated**, not merely removed: it is in every prior build artifact.
+- Grep the shipped client bundle, mobile app, and any `NEXT_PUBLIC_*` / `VITE_*` /
+  `EXPO_PUBLIC_*` env var for **both** key generations. ❌ on any hit — and the key must be
+  **rotated**, not just removed, since it lives in every prior build artifact.
+
+  | Generation | Secret (bypasses RLS) | Publishable (safe in a client) |
+  |---|---|---|
+  | current | `sb_secret_…`, and anything in `SUPABASE_SECRET_KEYS` | `sb_publishable_…` |
+  | legacy | `service_role` JWT | `anon` JWT |
+
+  **A `sb_secret_…` key is not a JWT**, so decoding a payload and reading its `role` claim —
+  the check an earlier revision of this skill described — silently misses the entire current
+  key format. Match on the literal prefixes first, and only decode when the value actually
+  looks like a JWT. Grep for `sb_secret_`, `service_role`, and `SUPABASE_SECRET_KEYS`; treat
+  `sb_publishable_` and the `anon` JWT as the expected client-side values.
 - List every edge function and server route that constructs a service-role client, and
   confirm each derives the tenant from the *verified* session — never from a request body
   field. A service-role handler that trusts `body.tenant_id` is a bucket-1 function wearing
@@ -650,7 +787,10 @@ beside this file. The cases that must appear:
 | 9 | B subscribes to realtime on each published table; A writes | B receives nothing |
 | 10 | B requests a storage object under A's path prefix | denied |
 | 11 | B upserts (`ON CONFLICT DO UPDATE`) onto a key held by A | must not mutate A's row, and must not confirm it exists |
-| 12 | B joins the broadcast/presence channel name A is using | no events |
+| 12 | B joins **and sends on** the broadcast/presence channel A uses | join denied; send rejected, confirmed from A's side |
+| 13 | B inserts a child row referencing **A's** parent | rejected — and `23503` indistinguishable from a random UUID |
+| 14 | unauthenticated · anonymous sign-in · second B user · viewer vs admin · removed member · **removed member's unexpired JWT** | 0 rows of A each; the stale-JWT row is the one that fails |
+| 15 | Edge Functions, server routes, GraphQL, exports, admin/impersonation routes, called as B with A's ids | no A data |
 
 ### ❌ Error-level
 - Any returned row, accepted write, or received event in cases 1–6, 9, 10, 12.
@@ -719,9 +859,9 @@ Rules worth gating, each one query feeding the diff above:
 | Rule | Live set |
 |---|---|
 | `rls-disabled` | tables in exposed schemas with `relrowsecurity = false` |
-| `missing-with-check` | policies on `INSERT`/`UPDATE`/`ALL` with `with_check IS NULL` |
+| `weak-write-check` | policies on `INSERT`/`UPDATE`/`ALL` whose `coalesce(with_check, qual)` does not reference the tenant column |
 | `definer-views` | views/matviews in exposed schemas without `security_invoker = true` |
-| `mutable-search-path` | `SECURITY DEFINER` functions with `proconfig IS NULL` |
+| `mutable-search-path` | `SECURITY DEFINER` functions with no `search_path=` entry in `proconfig` |
 | `anon-grants` | every table and `EXECUTE` grant held by `anon` |
 | `bypassrls-roles` | roles with `rolbypassrls` (Check 4e) |
 
@@ -772,7 +912,7 @@ VERIFIED CLEAR
 🟢 <surface> — <why it holds>
 ───────────────────────────────────────────────────
 CONNECTION BOUNDARY: proxy-only, no unexpected login/BYPASSRLS roles | <what differs>
-ISOLATION DEMONSTRATED: yes (matrix 12/12) | no (static only)
+ISOLATION DEMONSTRATED: yes (matrix 15/15) | no (static only)
 ```
 
 Both trailer lines are load-bearing and neither is optional. The first states the assumption
