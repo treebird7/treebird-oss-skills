@@ -2,20 +2,24 @@
 
 Public [Claude Code](https://claude.com/claude-code) skills from the Treebird flock.
 
-Two skills for working with OpenAI Codex from inside Claude Code — one to *drive* it,
-one to *disagree* with it.
-
 | Plugin | Command | What it does |
 |---|---|---|
 | `skill-codex` | `/codex` | Delegate a task to the Codex CLI — model selection, sandbox modes, contract-driven dispatch, and the hang modes that bite in headless runs |
 | `skill-clodex` | `/clodex` | Two-model adversarial review under a negotiated contract — each verifies the other's claims, then the fixes split by disjoint file set and land in one build |
+| `skill-rls-audit` | `/rls-audit` | Audit a deployed Supabase project for multi-tenant RLS leaks — and *demonstrate* isolation with a two-tenant black-box matrix rather than inspecting it |
+
+The first two are for working with OpenAI Codex from inside Claude Code — one to *drive*
+it, one to *disagree* with it. The third is unrelated to Codex and has no dependency on it.
 
 ## Requirements
 
 - Claude Code.
-- The `codex` CLI on your `PATH`. Verify with `codex --version` and resolve any errors
-  before installing — both skills shell out to it.
-- A working Codex login (ChatGPT sign-in, device auth, or an API key).
+- **For `/codex` and `/clodex` only:** the `codex` CLI on your `PATH` (verify with
+  `codex --version` and resolve any errors before installing — both skills shell out to it)
+  and a working Codex login (ChatGPT sign-in, device auth, or an API key).
+- **For `/rls-audit` only:** read access to the Supabase project you're auditing — the
+  Supabase CLI linked to it (`supabase link`), the Supabase MCP server, or the SQL editor.
+  `psql`, `curl`, and `jq` for the two-tenant matrix.
 
 ## Installation
 
@@ -25,6 +29,7 @@ one to *disagree* with it.
 /plugin marketplace add treebird7/treebird-oss-skills
 /plugin install skill-codex@treebird-oss-skills
 /plugin install skill-clodex@treebird-oss-skills
+/plugin install skill-rls-audit@treebird-oss-skills
 ```
 
 `/clodex` calls into `/codex` for pre-flight login, error handling, and the Codex CLI
@@ -37,10 +42,14 @@ you can install `/codex` on its own, not because you must install both by hand.
 ```bash
 git clone --depth 1 https://github.com/treebird7/treebird-oss-skills.git /tmp/treebird-oss-skills && \
 mkdir -p ~/.claude/skills && \
-cp -r /tmp/treebird-oss-skills/plugins/skill-codex/skills/codex   ~/.claude/skills/codex && \
-cp -r /tmp/treebird-oss-skills/plugins/skill-clodex/skills/clodex ~/.claude/skills/clodex && \
+cp -r /tmp/treebird-oss-skills/plugins/skill-codex/skills/codex         ~/.claude/skills/codex && \
+cp -r /tmp/treebird-oss-skills/plugins/skill-clodex/skills/clodex       ~/.claude/skills/clodex && \
+cp -r /tmp/treebird-oss-skills/plugins/skill-rls-audit/skills/rls-audit ~/.claude/skills/rls-audit && \
 rm -rf /tmp/treebird-oss-skills
 ```
+
+`/rls-audit` ships a companion file (`tenant-matrix.md`) alongside its `SKILL.md`; copy the
+whole directory, not just the `SKILL.md`.
 
 ## `/codex` — delegate to Codex
 
@@ -104,9 +113,63 @@ Design constraints worth knowing before you use it:
   point it at a rename; use it where being wrong is expensive and green CI proves
   little.
 
+## `/rls-audit` — prove your tenants are actually isolated
+
+> Audit this project for RLS leaks before we onboard the second customer.
+
+Eight checks against a **deployed** Supabase project. Not a migration reviewer — it reads
+the running system, on the assumption that the migration tree lies, because grants get
+hand-edited in the SQL editor, tightening migrations silently no-op, and the table added
+last month never got a policy.
+
+The premise: **a single-tenant app cannot leak to itself.** Every bug this finds is dormant
+until customer #2 signs up, which is exactly when it stops being cheap to fix.
+
+What it covers that a policy review doesn't:
+
+- **Views** — a view runs as its *owner* unless `security_invoker = true`, so a view over
+  an RLS table returns every tenant's rows and the base table's policies are never
+  consulted. Materialized views can't be fixed this way at all.
+- **Claim provenance** — `user_metadata` in a Supabase JWT is **user-writable**. A policy
+  reading the tenant id from there lets any user mint themselves membership of any tenant,
+  and it reviews clean because it looks exactly like the correct pattern. The skill traces
+  every tenant predicate back to its source and classifies it trusted or not.
+- **Write policies** — the *effective* write check is `coalesce(with_check, qual)`, since
+  PostgreSQL reuses `USING` when `WITH CHECK` is omitted on `UPDATE`/`ALL`. The leak is a
+  `USING` expression that reads fine but checks weakly: `user_id = auth.uid()` reused as a
+  write check still lets you rewrite `tenant_id`, because you stay the owner. Read-only test
+  suites never catch any of it.
+- **Permissive-OR** — a narrow policy does not constrain a broad one beside it, so a
+  `DROP POLICY IF EXISTS` with a stale name is a silent no-op that leaves the leak live.
+- **The surfaces nobody audits** — `SECURITY DEFINER` RPCs (anon-callable by default),
+  column-level grant breadth, public storage buckets and unpinned object paths, the
+  `supabase_realtime` publication, and service-role keys in client bundles.
+- **Existence oracles** — `count=exact` returning a positive number with an empty body, and
+  unique-constraint violations whose error text confirms another tenant's row exists.
+
+And the part that separates it from every checklist: **Check 7, the two-tenant matrix.**
+Everything else *inspects*; this *demonstrates*. Two real tenants, fifteen cases, anon key only
+— never the service role, which carries `BYPASSRLS` and makes every case pass while proving
+nothing. If the run didn't happen, the report has to say `ISOLATION DEMONSTRATED: no
+(static only)` instead of implying the project is safe.
+
+Design constraints worth knowing:
+
+- **A clean advisor run is not a pass.** Supabase's linter checks structure — is RLS on, is
+  the view a definer view. A table with RLS enabled and a policy of `USING (true)` is
+  advisor-clean and wide open. The skill runs the advisors first and then keeps going.
+- **Read-only by discipline.** Never `SELECT` real tenant rows to prove a finding — policy
+  plus grant plus a reachable path is proof, and pasting another tenant's data into a
+  transcript *is* the breach you're reporting.
+- **Bound the blast radius.** Findings are reported with a verified-clean perimeter, because
+  a finding without one turns into a week of undirected panic.
+- **Check 8 exists because audits decay.** It proposes a CI gate — six allowlist-diffed catalog rules that
+  must each return zero rows — so the table added next month can't quietly reintroduce
+  what you just fixed.
+
 ## Models and freshness
 
-Both skills carry a dated model table rather than relying on memory, because model
+The two Codex skills carry a dated model table rather than relying on memory, because model
 knowledge goes stale in weeks and a stale table is worse than none — the agent
 confidently reaches for a model that no longer exists.
 
@@ -162,6 +225,10 @@ Issues and PRs welcome, particularly:
 - Real transcripts where `/clodex` caught something a single-model review missed — or
   where it rubber-stamped something it shouldn't have. The skill is encoded from a small
   number of runs and says so; more evidence is the most useful contribution.
+- **New cases for the `/rls-audit` tenant matrix.** A leak found by hand that the fifteen
+  standing cases missed is the single most valuable contribution to that skill — a case
+  costs one line and then runs forever. `tenant-matrix.md` lists the candidates already
+  suspected but not yet written up.
 
 ## License
 
