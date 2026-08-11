@@ -938,5 +938,12 @@ security_invoker."
   on inspection alone.
 - **Bound the blast radius.** Say what you checked and found clean. A finding without a
   perimeter becomes a week of undirected panic.
+- **Postgres behavior you can derive; platform behavior you must observe.** Catalog semantics
+  are stable and safe to reason about — `coalesce(with_check, qual)`, owner bypass, FK checks
+  running below RLS. Realtime, Storage, PostgREST and the auth layer are versioned products
+  whose behavior has changed and will change again, and reasoning "Postgres does X, therefore
+  Supabase exposes X" is how a confident wrong claim gets into an audit. Every platform-level
+  assertion in this skill either carries a verify-this note or is a bug. Capture the actual
+  payload, status, or error and record what you saw, with the version.
 - **Don't prove it with real data.** Grants plus policy plus a reachable path is proof
   enough.

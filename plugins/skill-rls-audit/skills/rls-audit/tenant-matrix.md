@@ -291,17 +291,49 @@ b.channel('probe-del')
 // B very likely receives it. That is the platform's behavior.
 ```
 
-Record the outcome as ⚠️ with the mitigation rather than ❌ against the project: the payload
-is limited to the replica identity (primary key by default), so the exposure is "A deleted
-row `<uuid>`" unless someone set `REPLICA IDENTITY FULL` — which promotes it to a full
-cross-tenant row disclosure and **is** ❌. Check it:
+Record the outcome as ⚠️, and **grade it on what the primary key itself gives away** rather
+than on a payload size you have assumed. Supabase limits the delete payload to the primary
+key; with RLS enabled this holds even where `REPLICA IDENTITY FULL` is configured, so
+`FULL` does **not** by itself turn this into a full-row cross-tenant disclosure.
+
+*(Corrected 2026-08-11. An earlier revision of this file claimed `REPLICA IDENTITY FULL`
+escalated delete events to ❌ full-row disclosure. That was extrapolated from how `FULL`
+behaves in plain logical replication, not from Realtime's own behavior, which filters on top
+— and it was stated without the "verify this" hedge that platform-behavior claims in this
+document are supposed to carry. Do not reintroduce it.)*
+
+So what is actually leaking is **an identifier plus a timestamp**, and whether that matters
+is a property of your schema, not of Postgres:
+
+- 🟢 opaque random UUIDs, on a table whose existence is not itself a signal → note it, move on.
+- ⚠️ **sequential or guessable ids** — B learns A's row ids and can infer volume and growth
+  rate from the stream.
+- ⚠️ **the identifier is the datum**: primary keys that are emails, slugs, domains, external
+  customer ids, or anything else meaningful on its own.
+- ⚠️ **the timing is the datum** — deletion volume and rhythm can expose a competitor's churn,
+  a layoff, or an incident, even when every id is opaque.
+
+**Test it against your own version rather than trusting this file.** Realtime's behavior here
+has changed across releases; run the probe, capture the actual payload, and record what
+arrived:
+
+```js
+// print the payload verbatim — do not assume its shape
+.on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'invoices' },
+    p => console.log(JSON.stringify(p, null, 2)))
+```
+
+If anything beyond the key columns appears, that is a genuine ❌ and worth reporting upstream
+as well as fixing. Note the replica identity alongside the observed payload — it is still
+worth recording, and it does govern how much `old_record` carries on **UPDATE** events, which
+is a separate question this case does not answer:
 
 ```sql
 select pt.schemaname, pt.tablename,
        case c.relreplident
-         when 'd' then 'default (pk only)'
+         when 'd' then 'default (pk)'
          when 'i' then 'index'
-         when 'f' then 'FULL — delete events leak the whole row'
+         when 'f' then 'FULL'
          else 'nothing'
        end as replica_identity
 from pg_publication_tables pt
