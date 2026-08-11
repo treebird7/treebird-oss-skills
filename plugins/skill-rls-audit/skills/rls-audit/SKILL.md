@@ -305,6 +305,18 @@ where c.relkind in ('v','m')
 order by security_invoker, n.nspname, c.relname;
 ```
 
+**Read the server version before running this sub-check.** `security_invoker` was added in
+**PostgreSQL 15**. On PG 14 or older the column simply isn't a thing: the query below reports
+`off` for every view, the `ALTER VIEW` fix errors out, and the correct remediation is
+different — recreate the view owned by a role with no more access than the caller, or replace
+it with a `SECURITY INVOKER` set-returning function. Reporting "every view is a definer view,
+run `ALTER VIEW`" on PG 14 is a page of findings the project cannot act on.
+
+```sql
+select current_setting('server_version_num')::int >= 150000 as supports_security_invoker,
+       version();
+```
+
 #### ❌ Error-level
 - A view with `security_invoker = off` over an RLS-protected table, selectable by `anon` or
   `authenticated`. Fix: `ALTER VIEW <v> SET (security_invoker = true);` then re-verify the
@@ -938,12 +950,16 @@ security_invoker."
   on inspection alone.
 - **Bound the blast radius.** Say what you checked and found clean. A finding without a
   perimeter becomes a week of undirected panic.
-- **Postgres behavior you can derive; platform behavior you must observe.** Catalog semantics
-  are stable and safe to reason about — `coalesce(with_check, qual)`, owner bypass, FK checks
-  running below RLS. Realtime, Storage, PostgREST and the auth layer are versioned products
-  whose behavior has changed and will change again, and reasoning "Postgres does X, therefore
-  Supabase exposes X" is how a confident wrong claim gets into an audit. Every platform-level
-  assertion in this skill either carries a verify-this note or is a bug. Capture the actual
-  payload, status, or error and record what you saw, with the version.
+- **Derive Postgres semantics from the docs for the deployed *version*; observe platform
+  behavior against the deployed *product*.** Both halves are versioned — that is the whole
+  rule. Catalog semantics are documented and stable enough to reason about
+  (`coalesce(with_check, qual)`, owner bypass, FK checks running below RLS), but "stable"
+  means *within a major version*: `security_invoker` does not exist before PostgreSQL 15, so
+  Check 4a's finding and its fix both change shape on an older server. Realtime, Storage,
+  PostgREST and auth move faster still and are not documented per-deployment at all.
+  Reasoning "Postgres does X, therefore Supabase exposes X" is how a confident wrong claim
+  gets into an audit — it crosses both boundaries at once. Every platform-level assertion in
+  this skill either carries a verify-this note or is a bug. Read `select version()` early,
+  and capture the actual payload, status, or error alongside it.
 - **Don't prove it with real data.** Grants plus policy plus a reachable path is proof
   enough.
