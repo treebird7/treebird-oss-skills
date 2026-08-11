@@ -40,6 +40,19 @@ Needs a linked project (`supabase link`) or equivalent read access. Without one,
 `--static` and report Checks 3, 7, 8 as ⚪ skipped — do **not** silently downgrade to a
 source-only review and call it an audit.
 
+### What this audit assumes
+
+**Clients reach the database only through PostgREST, Storage, Realtime, and Edge
+Functions** — i.e. the Supabase proxy — and the only roles they can act as are `anon`,
+`authenticated`, and whatever the JWT names. Every check below is written against that
+boundary.
+
+That assumption is usually true on managed Supabase and often **false** on self-hosted or
+BYO-Postgres deployments. Check 4e tests it rather than trusting it. If it doesn't hold —
+port 5432 reachable from the internet, extra login roles, a pooler in transaction mode —
+say so at the top of the report, because a green audit under a false assumption is worse
+than no audit.
+
 ### Read-only discipline
 
 This audit reads catalogs and grants. Check 7 writes, but only rows it creates itself,
@@ -115,6 +128,24 @@ order by c.relrowsecurity, c.relforcerowsecurity, n.nspname, c.relname;
   owned by the table owner reads it with no policies applied. `ALTER TABLE … FORCE ROW LEVEL
   SECURITY` closes that and costs nothing on tables the app only reaches through
   `anon`/`authenticated`.
+
+**You cannot apply that rule without knowing who owns what**, so enumerate the ownership
+graph rather than assuming everything is `postgres`:
+
+```sql
+select pg_get_userbyid(c.relowner) as owner, count(*) as tables,
+       count(*) filter (where not c.relforcerowsecurity) as not_forced,
+       string_agg(c.relname, ', ' order by c.relname)    as which
+from pg_class c join pg_namespace n on n.oid = c.relnamespace
+where c.relkind in ('r','p') and n.nspname = 'public'
+group by 1 order by 2 desc;
+```
+
+A tenant-scoped table owned by anything other than the expected admin role is ❌ until
+explained: ownership is a silent RLS bypass for that role, it does not appear in any grant
+table, and a migration run under an unusual role is enough to create one. Pair the owner
+list with the login-role list from Check 4e — an owner that is also a **login** role is the
+combination that turns a schema-hygiene note into a reachable bypass.
 
 ### ⚠️ Warning-level
 - **`rls_enabled = true, policies = 0`** — deny-all. Not a leak today, but it means nobody
@@ -280,7 +311,21 @@ Also ❌ here:
   `EXECUTE` through `PUBLIC`. The pattern must be `REVOKE … FROM PUBLIC, anon`.
 - **Dynamic SQL** (`EXECUTE format(…)`) with interpolated identifiers or values not passed
   via `USING`, inside a definer function.
-
+- **Session-scoped `set_config` or `SET SESSION` in a function body.** `set_config(name,
+  value, false)` — third argument `false`, or a bare `SET`/`RESET` rather than `SET LOCAL` —
+  writes a GUC that **outlives the transaction**. Aimed at `request.jwt.claims`, `role`, or
+  `search_path` that is a direct identity rewrite: the function edits the value every policy
+  in this skill derives the tenant from. It is worse under a pooler (Check 4e), where the
+  poisoned setting rides the pooled server connection into whichever tenant is served next.
+  ```sql
+  select p.proname, p.prosecdef
+  from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+  where n.nspname = 'public'
+    and (pg_get_functiondef(p.oid) ~* 'set_config\s*\([^)]*,\s*false\s*\)'
+      or pg_get_functiondef(p.oid) ~* '(^|\s)set\s+(session\s+)?(role|search_path|request\.)');
+  ```
+  Read every hit: the legitimate form is `set_config(…, true)` / `SET LOCAL`, scoped to the
+  transaction. Anything else is ❌ regardless of what the function is for.
 ⚠️ **Who can create objects in a schema on the search path.** A hijackable `search_path` is
 only exploitable if the attacker can *put something there*. On a default Supabase project
 `authenticated` has no `CREATE` on `public`, which is what makes the definer rule above a
@@ -372,6 +417,65 @@ entirely on what is underneath it:
 Grade these against the catalog findings rather than on sight. The same line of code is
 harmless or critical depending on a fact three checks away, and reporting it without that
 join is how an audit loses its reader.
+
+### 4e · The connection boundary — test the assumption, don't inherit it
+
+Everything above assumes callers arrive as `anon`/`authenticated` through the Supabase
+proxy. **RLS is enforced per-role, not per-route**, so a direct connection is not itself a
+bypass — but it changes *which role* is available, and that is the bypass. On managed
+Supabase this check is usually three green lines; on self-hosted it is often where the whole
+audit turns.
+
+**Login roles and `BYPASSRLS`.** The highest-value query in this sub-check, and cheap:
+
+```sql
+select rolname, rolcanlogin, rolsuper, rolbypassrls, rolreplication
+from pg_roles
+where rolcanlogin or rolbypassrls or rolsuper
+order by rolbypassrls desc, rolsuper desc, rolname;
+```
+
+- ❌ **any role with `rolbypassrls` beyond the expected platform set.** `BYPASSRLS` is total
+  and unconditional — no policy in this document constrains it. One unexpected row here
+  invalidates every other check.
+- ❌ a login role outside the managed set (`postgres`, `authenticator`, and the platform's
+  own) — especially one an operator created for a script, a BI tool, or a migration runner.
+  Those are rarely policy-audited and frequently password-authenticated.
+- ⚠️ `rolsuper` on anything the application can authenticate as.
+
+Read `pg_roles`, not `pg_shadow`/`pg_authid` — the former is world-readable and carries what
+you need; the latter requires superuser and returns password hashes an audit has no reason
+to touch.
+
+**What `authenticator` can reach directly.** PostgREST logs in as `authenticator` and
+`SET ROLE`s to `anon`/`authenticated` per request. It should hold **no table privileges of
+its own** — only `GRANT anon, authenticated TO authenticator`. Any direct grant is reachable
+by anyone who obtains that connection string and simply declines to switch roles:
+
+```sql
+select table_schema, table_name,
+       string_agg(privilege_type, ',' order by privilege_type) as privs
+from information_schema.role_table_grants
+where grantee = 'authenticator'
+group by 1,2 order by 1,2;
+```
+❌ on any row.
+
+**Network reachability and pooling.** Confirm whether port 5432 (and the pooler port) is
+reachable from outside, and which mode the pooler runs in.
+
+- ⚠️ direct Postgres exposed to the public internet. Not a leak on its own — the roles above
+  are what make it one — but it removes the proxy from the trust argument, so every finding
+  in Checks 3–6 loses its "only reachable via PostgREST" mitigation.
+- ⚠️ **transaction-mode pooling plus any finding from the `set_config` rule in 4b.** In
+  transaction mode a server connection is handed to a different client after each
+  transaction; a GUC set without `LOCAL` persists on it. That is the one configuration where
+  a *session-scoped* identity setting becomes a cross-tenant leak with no policy defect
+  anywhere. Session-mode pooling and direct connections don't have this property.
+
+State the outcome in the report even when clean — "connections arrive only via the proxy;
+no unexpected login or `BYPASSRLS` roles" is a load-bearing sentence that the rest of the
+audit rests on.
 
 ---
 
@@ -581,22 +685,63 @@ beside this file. The cases that must appear:
 The leak that matters is the table added next month. A one-time audit decays; a gate does
 not.
 
-Recommend — and offer to write — a CI check that fails on:
+**Build it as an allowlist diff, not a zero-count assertion.** A gate that asserts "zero
+rows match this bad pattern" works exactly until the first legitimate exception — a
+reporting view that really is meant to be `security_invoker = off`, a genuinely public
+lookup table — at which point the gate goes permanently red and somebody deletes it. Then
+you have neither the exception documented nor the gate. An allowlist survives that: the
+exception gets written down, reviewed once, and everything *else* still fails loudly.
 
-1. Any table in an exposed schema with `relrowsecurity = false`.
-2. Any policy on `INSERT`/`UPDATE`/`ALL` with `with_check IS NULL`.
-3. Any view or matview in an exposed schema without `security_invoker = true`.
-4. Any `SECURITY DEFINER` function with `proconfig IS NULL`.
-5. Any grant to `anon` not present in a checked-in allowlist.
+The shape: one checked-in file per rule holding the expected set, and the gate diffs live
+state against it. Anything in live that isn't in the file fails; anything in the file that
+isn't live is stale and warns.
 
-Each is one catalog query whose row count must be zero, so the gate is a short SQL file plus
-a `--csv | test -z` wrapper — cheap enough that "we'll add it later" isn't a real argument.
+```
+.rls-gate/
+  rls-disabled.allow        # tables intentionally without RLS (each line: table  # why, who, when)
+  definer-views.allow       # views intentionally running as owner
+  anon-grants.allow         # every grant anon is meant to hold
+  definer-functions.allow   # SECURITY DEFINER functions, with their bucket
+  bypassrls-roles.allow     # roles allowed to hold BYPASSRLS
+```
+
+```bash
+# per rule: live set minus allowlist must be empty
+psql "$DATABASE_URL" -Atc "$QUERY" | sort > /tmp/live.txt
+grep -vE '^\s*(#|$)' .rls-gate/$RULE.allow | awk '{print $1}' | sort > /tmp/allow.txt
+comm -23 /tmp/live.txt /tmp/allow.txt | tee /tmp/new.txt
+[ ! -s /tmp/new.txt ] || { echo "unreviewed $RULE:"; cat /tmp/new.txt; exit 1; }
+comm -13 /tmp/live.txt /tmp/allow.txt | sed 's/^/stale allowlist entry: /'   # warn only
+```
+
+Rules worth gating, each one query feeding the diff above:
+
+| Rule | Live set |
+|---|---|
+| `rls-disabled` | tables in exposed schemas with `relrowsecurity = false` |
+| `missing-with-check` | policies on `INSERT`/`UPDATE`/`ALL` with `with_check IS NULL` |
+| `definer-views` | views/matviews in exposed schemas without `security_invoker = true` |
+| `mutable-search-path` | `SECURITY DEFINER` functions with `proconfig IS NULL` |
+| `anon-grants` | every table and `EXECUTE` grant held by `anon` |
+| `bypassrls-roles` | roles with `rolbypassrls` (Check 4e) |
+
+Two properties this buys that a count never does: an exception carries a **reason and an
+author** in the file, so review has something to argue with; and the diff names *what* is
+new rather than reporting that a number went up, so the failure is actionable from the CI
+log alone.
+
+Seed the allowlists from this audit's own output — every finding you *accept* as
+intentional becomes a line, and every finding you fix becomes an absence.
 
 ### ⚠️ Warning-level
-- No gate exists, on a project with more than one engineer or more than one tenant.
+- No gate exists, and the project has more than one engineer or more than one tenant.
+- A gate exists but is **count-based** — it will be deleted at the first legitimate
+  exception, so it is a gate with an expiry date.
 
 ### ℹ️ Info-level
-- A gate exists but its allowlist hasn't been reviewed since the last audit.
+- Allowlist entries with no reason, no author, or no date.
+- Allowlist entries that no longer match anything live (stale — the object was dropped, and
+  the exception should go with it).
 
 ---
 
@@ -609,7 +754,7 @@ Check 1: advisor_baseline .............. ✅ | ⚠️ N | ❌ N
 Check 2: rls_coverage .................. ✅ | ⚠️ N | ❌ N
 Check 3: policy_shape .................. ✅ | ⚠️ N | ❌ N
 Check 4: bypass_surfaces ............... ✅ | ⚠️ N | ❌ N
-  ↳ views / definer fns / grants / service-role
+  ↳ views / definer fns / grants / service-role / connection boundary
 Check 5: platform_surfaces ............. ✅ | ⚠️ N | ❌ N
   ↳ schemas / storage / realtime / auth
 Check 6: claim_provenance .............. ✅ | ⚠️ N | ❌ N
@@ -626,8 +771,13 @@ FINDINGS  (reachable-first)
 VERIFIED CLEAR
 🟢 <surface> — <why it holds>
 ───────────────────────────────────────────────────
+CONNECTION BOUNDARY: proxy-only, no unexpected login/BYPASSRLS roles | <what differs>
 ISOLATION DEMONSTRATED: yes (matrix 12/12) | no (static only)
 ```
+
+Both trailer lines are load-bearing and neither is optional. The first states the assumption
+the other seven checks rest on; the second states whether isolation was proven or merely
+inspected. A report that omits them is asserting more than it verified.
 
 Lead with the **canonical harm** — "any authenticated user can read every tenant's invoices
 via `v_invoice_summary`" — then the mechanism, then the fix. Not "view lacks

@@ -146,7 +146,7 @@ What it covers that a policy review doesn't:
   unique-constraint violations whose error text confirms another tenant's row exists.
 
 And the part that separates it from every checklist: **Check 7, the two-tenant matrix.**
-Everything else *inspects*; this *demonstrates*. Two real tenants, ten cases, anon key only
+Everything else *inspects*; this *demonstrates*. Two real tenants, twelve cases, anon key only
 — never the service role, which carries `BYPASSRLS` and makes every case pass while proving
 nothing. If the run didn't happen, the report has to say `ISOLATION DEMONSTRATED: no
 (static only)` instead of implying the project is safe.
