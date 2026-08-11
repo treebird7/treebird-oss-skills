@@ -154,6 +154,19 @@ order by tablename, cmd, policyname;
   written as `DROP POLICY IF EXISTS "<name>"` whose name doesn't match the live policy is a
   **silent no-op** — the DROP succeeds, the broad policy survives, the migration looks
   applied and the leak persists. Count policies per (table, cmd) and read every one.
+- **A tenant column defaulted from the session, on a table with no `WITH CHECK`.**
+  `DEFAULT auth.uid()` and `DEFAULT (auth.jwt() -> 'app_metadata' ->> 'tenant_id')` appear
+  throughout Supabase starter templates and *look* like enforcement. They are not: a column
+  default applies only when the column is **omitted** from the `INSERT`. Any client that
+  sends the column explicitly overrides it. The default is ergonomics; `WITH CHECK` is the
+  control. Enumerate them and pair each against the table's write policy:
+  ```sql
+  select table_name, column_name, column_default
+  from information_schema.columns
+  where table_schema = 'public' and column_default ilike '%auth.%'
+  order by table_name, column_name;
+  ```
+  Every hit on a table whose write policy doesn't enforce the same value is a leak.
 
 ### ⚠️ Warning-level
 - **`cmd = 'ALL'`** — one `USING` expression serves as both the read filter and the write
@@ -245,6 +258,8 @@ caller reach a privileged action."**
 
 | Bucket | Signature | Verdict |
 |---|---|---|
+<!-- identity-source-buckets v1 — inlined from the canonical taxonomy; re-sync when the marker changes -->
+
 | **1 · param-identity** | takes a tenant/user id as a **parameter** and uses it in `WHERE`/`INSERT`/`UPDATE` with no `caller ∈ tenant` check | ❌ **critical** — pass any tenant id, get any tenant's data. RLS is bypassed, so nothing else stops it. |
 | **2 · unguarded privileged write** | definer + write to a sensitive table (roles, credits, subscriptions), no caller authorization, reachable by `authenticated`/`anon` | ❌ **critical** — forgery / privilege escalation |
 | **3 · session-identity** | tenant derived **solely** from `(SELECT auth.uid())` or a server-controlled claim, every read and write scoped to it | 🟢 **safe** even if `PUBLIC`-callable — `anon` gets zero rows. Missing `REVOKE` is ℹ️ hygiene. |
@@ -265,6 +280,30 @@ Also ❌ here:
   `EXECUTE` through `PUBLIC`. The pattern must be `REVOKE … FROM PUBLIC, anon`.
 - **Dynamic SQL** (`EXECUTE format(…)`) with interpolated identifiers or values not passed
   via `USING`, inside a definer function.
+
+⚠️ **Who can create objects in a schema on the search path.** A hijackable `search_path` is
+only exploitable if the attacker can *put something there*. On a default Supabase project
+`authenticated` has no `CREATE` on `public`, which is what makes the definer rule above a
+hardening item rather than a live breach — so verify that assumption rather than inheriting
+it, because a project that granted it turns every mutable-`search_path` function into a
+reachable one:
+```sql
+select n.nspname,
+       has_schema_privilege('anon', n.oid, 'create')          as anon_create,
+       has_schema_privilege('authenticated', n.oid, 'create')  as auth_create
+from pg_namespace n
+where n.nspname not in ('pg_catalog','information_schema','pg_toast');
+```
+`true` in either column is ❌ on its own, independent of any function. Note that
+`SECURITY INVOKER` functions run as the caller, so a mutable path there is *not* privilege
+escalation on its own — it becomes one only via this grant, or when the function is called
+from inside a definer context.
+
+ℹ️ **`EXECUTE` granted to `authenticated` on a trigger function.** Revoke it — a trigger
+function is invoked by the table event, never by a caller, so the grant buys nothing and
+only widens the RPC surface. PostgREST excludes `RETURNS TRIGGER` functions from its schema
+cache, so this is hygiene rather than an exposed endpoint; **verify against your own
+PostgREST version** before downgrading or escalating it.
 
 ### 4c · Grants — the drift surface
 
@@ -319,6 +358,21 @@ tenant *in code*.
   field. A service-role handler that trusts `body.tenant_id` is a bucket-1 function wearing
   a different hat.
 
+**Filters that look like authorization.** Separately from key exposure, read every edge
+function and server route for the shape `.from(t).select().eq('tenant_id', body.tenantId)`
+— a predicate taken from the request rather than the verified JWT. Severity depends
+entirely on what is underneath it:
+
+| Client the handler built | Verdict |
+|---|---|
+| service-role client | ❌ — nothing else is checking; this *is* the authorization, and it's attacker-supplied |
+| authenticated client, table has correct RLS | ℹ️ — RLS still holds; the filter only narrows. Note it, don't escalate it. |
+| authenticated client, table failed Check 2 or 3 | ❌ — the filter was the only control and it isn't one |
+
+Grade these against the catalog findings rather than on sight. The same line of code is
+harmless or critical depending on a fact three checks away, and reporting it without that
+join is how an audit loses its reader.
+
 ---
 
 ## Check 5: platform_surfaces
@@ -355,6 +409,28 @@ RLS to `postgres_changes`, but the failure modes are specific enough to test rat
 assume: a table added to the publication *before* its policies existed, and broadcast /
 presence channels whose authorization is a separate control from table RLS. ⚠️ any published
 table that Check 2 flagged, and confirm with a real second-tenant socket in Check 7.
+
+**Broadcast and presence are a different control, and this is the gap most audits leave
+open.** `postgres_changes` is the only Realtime feature RLS reaches. Broadcast and presence
+carry no table behind them — a collaborative app pushing cursors, typing indicators, live
+document edits, or notification fan-out over broadcast gets **no isolation from anything
+above**. Authorization for those channels is RLS on `realtime.messages` (private channels)
+plus whatever the client sets; a channel that is not private is joinable by any client that
+knows its name, and channel names are usually a predictable function of a tenant or
+document id.
+
+```sql
+select policyname, cmd, roles, qual, with_check
+from pg_policies where schemaname = 'realtime' order by tablename, policyname;
+```
+
+- ❌ App code that calls `.channel(name)` without `{ config: { private: true } }` for any
+  channel carrying tenant data, or a `realtime.messages` table with no policies while
+  private channels are in use.
+- ⚠️ Channel names derived from a guessable id. Enumerable names plus a non-private channel
+  is a cross-tenant subscription with no database involvement at all.
+
+Test it in Check 7: B joins the channel name A is using and asserts silence.
 
 ### 5d · The `auth` schema
 - ❌ Any view, function, or foreign-key-driven embed that surfaces `auth.users` rows —
@@ -393,9 +469,36 @@ Classify every tenant predicate in the system by its source:
 | `auth.uid()` → membership-table lookup | 🟢 **trusted** | Server-controlled at both ends. The default correct answer. |
 | `auth.jwt() -> 'app_metadata' ->> 'tenant_id'` | 🟢 **trusted** | Only settable with the service role — but verify *nothing client-reachable writes it*. An edge function that copies a request field into `app_metadata` re-opens the hole. |
 | `auth.jwt() -> 'user_metadata' ->> 'tenant_id'` | ❌ **untrusted** | User-writable. Critical. |
-| a custom claim from an auth hook | ⚠️ | Trusted only if the hook derives it server-side from a table and cannot be influenced by sign-up input. |
+| a custom claim from an auth hook | ⚠️ → verify | Trusted only if the hook derives it server-side from a table and cannot be influenced by sign-up input. Inspect it — see below. |
 | a function or RPC **parameter** | ❌ **untrusted** | Bucket 1 from Check 4b. |
 | a request header or body field | ❌ **untrusted** | |
+
+### Verifying a custom-access-token hook
+
+A hook claim is the one row in that table you cannot grade by reading the policy — the
+verdict lives in the hook body. Do not mark it ⚠️ and move on; resolve it to 🟢 or ❌:
+
+```sql
+select p.proname, p.prosecdef, p.proconfig,
+       has_function_privilege('authenticated', p.oid, 'execute') as auth_exec,
+       pg_get_functiondef(p.oid)                                 as body
+from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+where p.proname ilike '%access_token%' or p.proname ilike '%custom_claim%';
+```
+
+Read the body for four things:
+
+1. **Where the tenant comes from.** It must be `select … from <membership table> where
+   user_id = (event->>'user_id')::uuid`. If it reads `raw_user_meta_data` and copies it into
+   the claim, the hook is **laundering a user-writable value into a trusted-looking one** —
+   ❌, and strictly worse than reading `user_metadata` in the policy directly, because every
+   downstream policy now looks correct.
+2. **Whether anything writes `raw_app_meta_data` from input.** Grep the whole schema, not
+   just the hook — a sign-up trigger that seeds `app_metadata` from `raw_user_meta_data` puts
+   the user in control of the trusted side. ❌.
+3. **`EXECUTE` on the hook.** It should be granted to `supabase_auth_admin` and revoked from
+   `authenticated`, `anon`, and `PUBLIC`. A caller-invokable hook is a bucket-1 function.
+4. **`prosecdef` and `proconfig`.** Definer with a pinned `search_path`, per Check 4b.
 
 ### ❌ Error-level
 - Any tenant predicate resolving to a user-writable source.
@@ -434,7 +537,7 @@ beside this file. The cases that must appear:
 |---|---|---|
 | 1 | B `SELECT`s each table | 0 rows of A |
 | 2 | B `INSERT`s a row carrying **A's** tenant id | rejected |
-| 3 | B `UPDATE`s one of B's own rows, setting tenant id to **A's** | rejected |
+| 3 | B `UPDATE`s one of B's own rows, setting tenant id to **A's** | `42501` specifically — `UPDATE 0` is **inconclusive**, not a pass |
 | 4 | B `UPDATE`s / `DELETE`s a row of A's by primary key | 0 rows affected |
 | 5 | B reads each **view** and calls each **`/rpc/` function** | no A data |
 | 6 | B requests a PostgREST **embed** (`?select=*,child(*)`), nested two deep | no A data |
@@ -442,15 +545,28 @@ beside this file. The cases that must appear:
 | 8 | B `INSERT`s a value colliding with A's on a unique constraint | must not confirm A's row exists |
 | 9 | B subscribes to realtime on each published table; A writes | B receives nothing |
 | 10 | B requests a storage object under A's path prefix | denied |
+| 11 | B upserts (`ON CONFLICT DO UPDATE`) onto a key held by A | must not mutate A's row, and must not confirm it exists |
+| 12 | B joins the broadcast/presence channel name A is using | no events |
 
 ### ❌ Error-level
-- Any returned row, accepted write, or received event in cases 1–6, 9, 10.
+- Any returned row, accepted write, or received event in cases 1–6, 9, 10, 12.
+- **Case 11 — an upsert that mutates A's row.** RLS *does* apply to the `DO UPDATE` path, so
+  this should be impossible; if it happens, the table's UPDATE policy is satisfiable by B and
+  Check 3 missed it.
 
 ### ⚠️ Warning-level
 - **Case 7 — a count that reveals rows the caller cannot read.** An existence oracle.
 - **Case 8 — a `23505` unique-violation whose error text names A's row.** An enumeration
   oracle: it confirms which emails, slugs, or domains exist in other tenants. Catch it and
   return a generic conflict.
+- **Case 11 — an upsert that errors *differently* depending on whether A holds the key.**
+  The same oracle as case 8 by another route, and the one people miss because the upsert
+  looks like a write test rather than a read test. `DO NOTHING` is the mirror image: it
+  swallows the conflict silently, so B's insert vanishes with a success status and no row —
+  not a leak, but a data-loss bug worth reporting in the same breath.
+- **Case 3 returning `UPDATE 0`** — the row predicate excluded B's own row, so `WITH CHECK`
+  was never reached and the case proved nothing. Fix the fixture and re-run; do not score it
+  as a pass.
 - Any distinguishable difference between "does not exist" and "exists, denied" — status
   code, latency, or message. Both must look identical from outside.
 
@@ -510,7 +626,7 @@ FINDINGS  (reachable-first)
 VERIFIED CLEAR
 🟢 <surface> — <why it holds>
 ───────────────────────────────────────────────────
-ISOLATION DEMONSTRATED: yes (matrix 10/10) | no (static only)
+ISOLATION DEMONSTRATED: yes (matrix 12/12) | no (static only)
 ```
 
 Lead with the **canonical harm** — "any authenticated user can read every tenant's invoices

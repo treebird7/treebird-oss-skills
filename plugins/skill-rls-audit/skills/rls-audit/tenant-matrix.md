@@ -30,7 +30,7 @@ match anywhere is a failed audit, whatever the individual case assertions said.
 
 ---
 
-## Form 1 — SQL (fastest; covers cases 1–4, 8)
+## Form 1 — SQL (fastest; covers cases 1–4, 11)
 
 Runs against the database directly, impersonating a session. Use it to sweep every table in
 minutes. It does **not** exercise PostgREST, so it cannot cover embeds, counts, or the API's
@@ -70,6 +70,15 @@ update public.invoices set tenant_id = '<TENANT_A_ID>' where marker = 'BBBB-CANA
 update public.invoices set amount = 999 where id = '<A_ROW_ID>';     -- expect UPDATE 0
 delete from public.invoices              where id = '<A_ROW_ID>';    -- expect DELETE 0
 
+-- ── case 11: upsert onto a key A holds
+insert into public.customers (tenant_id, email, name)
+values ('<TENANT_B_ID>', '<AN_EXISTING_TENANT_A_CUSTOMER_EMAIL>', 'overwritten')
+on conflict (email) do update set name = excluded.name;
+-- expect: A's row unchanged. RLS applies to the DO UPDATE path, so a successful
+-- mutation here means the UPDATE policy is satisfiable by B and check 3 missed it.
+-- Then compare the error against the same statement using an email NO tenant holds:
+-- if the two responses differ, the upsert is an existence oracle (same class as case 8).
+
 rollback;                 -- resets role and claims with the transaction
 ```
 
@@ -82,10 +91,18 @@ Two failure modes that look like passes:
   `FORCE ROW LEVEL SECURITY`. `authenticated` is not the owner, which is the entire point of
   the role switch.
 
-Note the asymmetry between cases 3 and 4: a **rejected** write (`42501`) and a **zero-row**
-write are both safe, but they mean different things. `UPDATE 0` in case 3 means the row
-predicate excluded it; an *error* means `WITH CHECK` caught it. Case 3 returning `UPDATE 1`
-is the leak.
+**Case 3 must return `42501` — `UPDATE 0` is a failed test, not a pass.** The two look alike
+in a results table and mean opposite things. B *owns* the row it is trying to move, so the
+`USING` predicate must match it and `WITH CHECK` must then reject the new tenant id. If you
+get `UPDATE 0`, `USING` excluded B's own row — the fixture is wrong (marker mismatch, or B
+can't see its own data) and `WITH CHECK` was never exercised at all. Scoring that as a pass
+is how a table with **no** `WITH CHECK` gets a clean bill of health from this harness. Fix
+the fixture and re-run.
+
+Case 4 is the opposite: there, `UPDATE 0`/`DELETE 0` **is** the pass, because B does not own
+the row and `USING` is supposed to exclude it. Same status, opposite meaning, one case apart
+— which is exactly why the expected value is written per case rather than as a blanket
+"write is rejected."
 
 ### Sweeping every table
 
@@ -201,6 +218,37 @@ the anon token and can make it look correctly restrictive for entirely the wrong
 asserting too early — wait until at least one *B-owned* write has arrived, so you know the
 subscription is live before concluding that silence means isolation.
 
+### Case 12 — broadcast and presence
+
+`postgres_changes`, above, is the only Realtime feature RLS reaches. Broadcast and presence
+have no table behind them, so **nothing in checks 1–6 constrains them at all** — if the app
+pushes cursors, typing indicators, live edits, or notification fan-out over broadcast, this
+case is the only thing in the audit that looks at it.
+
+Work out how the app names its channels (usually a template over a tenant, document, or room
+id), then have B join the name **A** is using:
+
+```js
+const ch = b.channel(`tenant:${TENANT_A_ID}`, { config: { private: true } })
+const seen = []
+ch.on('broadcast', { event: '*' }, p => seen.push(p))
+  .on('presence',  { event: 'sync' }, () => seen.push(ch.presenceState()))
+  .subscribe(status => console.log(status))       // expect an auth error, not SUBSCRIBED
+
+// … now, as tenant A, broadcast on the same channel …
+// assert seen.length === 0
+```
+
+Two verdicts, and the weaker one is the common case: a **subscribe failure** is the pass. If
+B reaches `SUBSCRIBED` and merely receives nothing during the window, that is not isolation —
+it means nobody sent anything yet. Run A's broadcast *after* B is subscribed and assert on
+what arrives.
+
+Also try it **without** `private: true`. A public channel is joinable by anyone who can guess
+the name, and channel names are near-always a predictable function of an id the other tenant
+can obtain. If the app's own client omits `private`, `realtime.messages` policies never come
+into play regardless of how well they're written.
+
 ---
 
 ## Reporting
@@ -209,10 +257,10 @@ For each case record **case · surface · expected · observed · verdict**, the
 line the audit report carries verbatim:
 
 ```
-ISOLATION DEMONSTRATED: 10/10 cases across 14 tables, 3 views, 6 RPCs, 2 buckets, 4 published tables
+ISOLATION DEMONSTRATED: 12/12 cases across 14 tables, 3 views, 6 RPCs, 2 buckets, 4 published tables
 ```
 
-Partial runs must say which cases were skipped. "9/10, case 9 skipped (no realtime in this
+Partial runs must say which cases were skipped. "11/12, case 12 skipped (no broadcast in this
 project)" is a fine result. "Isolation verified" over a run that never subscribed to
 anything is not.
 
@@ -224,9 +272,14 @@ When an audit finds a leak by hand that the matrix missed, **add the case here b
 the bug.** That is the compounding mechanism: the matrix becomes the accumulated memory of
 every leak you have ever found, and a case costs one line to run forever.
 
-Candidates worth adding as you meet them: soft-deleted rows still visible to the other
-tenant; `ON CONFLICT DO UPDATE` reaching a row the caller cannot `SELECT`; full-text search
-and `tsvector` columns indexing across tenants; aggregate or reporting endpoints that return
-per-row detail; CSV and PDF exports built server-side with a privileged client; webhook and
-email templates rendered with cross-tenant context; and any admin route that accepts a
-tenant id as a parameter.
+Candidates worth adding as you meet them: full-text search and `tsvector` columns indexing
+across tenants; aggregate or report endpoints returning per-row detail; CSV and PDF exports
+built server-side with a privileged client; webhook and email templates rendered with
+cross-tenant context; and any admin route that takes a tenant id as a parameter.
+
+**Out of scope on purpose:** soft-deleted rows still readable at the database layer. Real,
+and worth fixing — but under a tenant predicate it is *your own* deleted data you can still
+read, which is a retention and privacy finding rather than a tenant-isolation one. It
+belongs to `/privacy-review`. Only bring it back here if soft-deletion is what separates two
+tenants' rows on a shared table, which is a schema shape you should be arguing against
+anyway.
