@@ -1,7 +1,7 @@
 {
   "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
   "name": "treebird-oss-skills",
-  "description": "Public Claude Code skills from the Treebird flock \u2014 cross-model review workflows for OpenAI Codex, and a multi-tenant Supabase RLS leak audit",
+  "description": "Public Claude Code skills from the Treebird flock — cross-model review workflows for OpenAI Codex, and a multi-tenant Supabase RLS leak audit",
   "owner": {
     "name": "treebird7",
     "url": "https://github.com/treebird7"
@@ -25,7 +25,7 @@
     {
       "name": "skill-clodex",
       "source": "./plugins/skill-clodex",
-      "description": "Bounded Claude-to-Codex peer-review loop \u2014 two models argue a question to a verdict, and unresolved disagreements escalate to the human",
+      "description": "Bounded Claude-to-Codex peer-review loop — two models argue a question to a verdict, and unresolved disagreements escalate to the human",
       "version": "1.2.0",
       "category": "development",
       "homepage": "https://github.com/treebird7/treebird-oss-skills",
@@ -42,7 +42,7 @@
       "name": "skill-rls-audit",
       "source": "./plugins/skill-rls-audit",
       "description": "Audit a deployed Supabase project for multi-tenant RLS leaks — policy shape, tenant-claim provenance, the bypass surfaces RLS never covers, and a two-tenant black-box proof",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "category": "development",
       "homepage": "https://github.com/treebird7/treebird-oss-skills",
       "tags": [
@@ -52,7 +52,10 @@
         "rls",
         "row-level-security",
         "multi-tenant",
-        "security-audit"
+        "security-audit",
+        "bola",
+        "idor",
+        "object-level-authorization"
       ]
     }
   ]

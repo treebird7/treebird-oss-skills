@@ -804,6 +804,18 @@ beside this file. The cases that must appear:
 | 14 | unauthenticated · anonymous sign-in · second B user · viewer vs admin · removed member · **removed member's unexpired JWT** | 0 rows of A each; the stale-JWT row is the one that fails |
 | 15 | Edge Functions, server routes, GraphQL, exports, admin/impersonation routes, called as B with A's ids | no A data |
 
+### BOLA / IDOR coverage
+
+Cases 4, 5, 6, 10, 13, and 15 are the object-level authorization matrix. **BOLA**
+(Broken Object Level Authorization) is the failed authorization boundary; **IDOR** is the
+common implementation pattern in which changing an identifier reaches an object the caller
+does not own. Together these cases cover row IDs, RPC arguments, embeds, storage paths,
+foreign keys, GraphQL, exports, and application routes.
+
+Run every object-bearing surface through the full variant matrix in `tenant-matrix.md`;
+one denied `GET /objects/:id` is not a BOLA pass. This skill audits and demonstrates the
+authorization boundary. It does not add authorization to the project.
+
 ### ❌ Error-level
 - Any returned row, accepted write, or received event in cases 1–6, 9, 10, 12.
 - **Case 11 — an upsert that mutates A's row.** RLS *does* apply to the `DO UPDATE` path, so

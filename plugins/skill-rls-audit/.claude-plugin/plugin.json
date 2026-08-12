@@ -1,7 +1,7 @@
 {
   "name": "skill-rls-audit",
   "description": "Claude Code skill that audits a deployed Supabase project for multi-tenant row-level-security leaks — policy shape, tenant-claim provenance, the surfaces RLS never covers, and a two-tenant black-box proof",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "author": {
     "name": "treebird7",
     "url": "https://github.com/treebird7"
@@ -19,6 +19,9 @@
     "row-level-security",
     "multi-tenant",
     "security-audit",
-    "tenant-isolation"
+    "tenant-isolation",
+    "bola",
+    "idor",
+    "object-level-authorization"
   ]
 }

@@ -147,6 +147,11 @@ What it covers that a policy review doesn't:
 - **Existence oracles** — `count=exact` returning a positive number with an empty body, and
   unique-constraint violations whose error text confirms another tenant's row exists.
 
+- **BOLA / IDOR** — the black-box matrix substitutes A's row IDs, RPC parameters, embeds,
+  storage paths, foreign keys, slugs, and GraphQL IDs as B, across every supported operation
+  plus bulk and nested variants. It also separates tenant isolation from same-tenant
+  ownership and role checks.
+
 And the part that separates it from every checklist: **Check 7, the two-tenant matrix.**
 Everything else *inspects*; this *demonstrates*. Two real tenants, fifteen cases, anon key only
 — never the service role, which carries `BYPASSRLS` and makes every case pass while proving
