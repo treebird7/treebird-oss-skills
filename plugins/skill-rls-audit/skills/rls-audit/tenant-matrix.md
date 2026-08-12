@@ -466,6 +466,28 @@ segment, query string, body field, header:
 - webhook payloads and rendered email templates, which frequently carry more context than the UI
 - any admin or impersonation route ("view as user"), tested as a **non**-admin member of B
 
+### BOLA / IDOR variant matrix
+
+Cases 4, 5, 6, 10, 13, and 15 together are the object-level authorization matrix: row IDs,
+RPC arguments, embeds, storage paths, foreign keys, GraphQL, exports, and application
+routes. **BOLA** is the failed authorization boundary; **IDOR** is the identifier substitution technique that commonly exposes it.
+
+Do not stop after one `GET /objects/:id`. For every object-bearing endpoint, exercise each
+applicable cell:
+
+| Axis | Required probes |
+|---|---|
+| Reference | primary key, slug, path/query/body/header field, GraphQL node or global ID, storage path, signed URL or token |
+| Operation | list/read/create/update/delete plus every supported bulk, export, and nested operation |
+| Boundary | B's own object (positive control), another B user's object, A's object, lower-privilege role, removed member |
+| Shape | scalar ID, arrays of IDs, parent/child IDs, and mixed-tenant or mixed-owner graphs |
+
+For writes, assert A's object and relationships remain unchanged; a denial alone is not
+enough. Pair every forbidden identifier with a random nonexistent one and require the same
+status, body shape, and materially similar timing wherever object existence is sensitive.
+The positive control must succeed, or a deny-all or disconnected harness can report a
+perfect score.
+
 Anything reachable here bypasses every catalog query in this skill, because the credential
 was chosen by application code rather than derived from B's JWT.
 
