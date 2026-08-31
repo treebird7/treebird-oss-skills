@@ -1,0 +1,20 @@
+{
+  "name": "skill-opencode",
+  "description": "Claude Code skill to dispatch work to the opencode CLI across its cloud models, then review the output rather than accept it",
+  "version": "1.0.0",
+  "author": {
+    "name": "treebird7",
+    "url": "https://github.com/treebird7"
+  },
+  "homepage": "https://github.com/treebird7/treebird-oss-skills",
+  "repository": "https://github.com/treebird7/treebird-oss-skills",
+  "license": "MIT",
+  "keywords": [
+    "claude-code",
+    "plugin",
+    "opencode",
+    "multi-model",
+    "automation",
+    "refactoring"
+  ]
+}

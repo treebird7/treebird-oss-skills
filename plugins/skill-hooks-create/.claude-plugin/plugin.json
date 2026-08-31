@@ -1,0 +1,22 @@
+{
+  "name": "skill-hooks-create",
+  "description": "Claude Code skill that runs a pre-flight grill before writing any AI-CLI or git hook, covering the failure modes that corrupt output silently",
+  "version": "1.0.0",
+  "author": {
+    "name": "treebird7",
+    "url": "https://github.com/treebird7"
+  },
+  "homepage": "https://github.com/treebird7/treebird-oss-skills",
+  "repository": "https://github.com/treebird7/treebird-oss-skills",
+  "license": "MIT",
+  "keywords": [
+    "claude-code",
+    "plugin",
+    "hooks",
+    "claude-code",
+    "git-hooks",
+    "codex",
+    "copilot",
+    "opencode"
+  ]
+}

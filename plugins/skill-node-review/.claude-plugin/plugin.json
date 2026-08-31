@@ -1,0 +1,22 @@
+{
+  "name": "skill-node-review",
+  "description": "Claude Code skill that audits a repo's package layer for lockfile drift, dual lockfiles, and unsafe dependency bumps",
+  "version": "2.0.0",
+  "author": {
+    "name": "treebird7",
+    "url": "https://github.com/treebird7"
+  },
+  "homepage": "https://github.com/treebird7/treebird-oss-skills",
+  "repository": "https://github.com/treebird7/treebird-oss-skills",
+  "license": "MIT",
+  "keywords": [
+    "claude-code",
+    "plugin",
+    "node",
+    "npm",
+    "pnpm",
+    "lockfile",
+    "supply-chain",
+    "review"
+  ]
+}

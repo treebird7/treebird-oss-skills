@@ -1,0 +1,21 @@
+{
+  "name": "skill-privacy-review",
+  "description": "Claude Code skill that audits an app handling private user data for the divergence between stated privacy guarantees and enforced behavior",
+  "version": "2.0.0",
+  "author": {
+    "name": "treebird7",
+    "url": "https://github.com/treebird7"
+  },
+  "homepage": "https://github.com/treebird7/treebird-oss-skills",
+  "repository": "https://github.com/treebird7/treebird-oss-skills",
+  "license": "MIT",
+  "keywords": [
+    "claude-code",
+    "plugin",
+    "privacy",
+    "security",
+    "review",
+    "audit",
+    "gdpr"
+  ]
+}

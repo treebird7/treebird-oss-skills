@@ -1,0 +1,23 @@
+{
+  "name": "skill-sql-review",
+  "description": "Claude Code skill for DB/ORM-agnostic review of SQL migrations, schemas, and queries, with optional live privilege-drift checks",
+  "version": "2.0.0",
+  "author": {
+    "name": "treebird7",
+    "url": "https://github.com/treebird7"
+  },
+  "homepage": "https://github.com/treebird7/treebird-oss-skills",
+  "repository": "https://github.com/treebird7/treebird-oss-skills",
+  "license": "MIT",
+  "keywords": [
+    "claude-code",
+    "plugin",
+    "sql",
+    "postgres",
+    "rls",
+    "security",
+    "review",
+    "migrations",
+    "audit"
+  ]
+}
