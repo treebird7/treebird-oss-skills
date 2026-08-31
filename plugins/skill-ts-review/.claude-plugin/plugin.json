@@ -1,0 +1,21 @@
+{
+  "name": "skill-ts-review",
+  "description": "Claude Code skill that reviews TS/JS crossing a trust boundary for security defects; not a style linter",
+  "version": "2.0.0",
+  "author": {
+    "name": "treebird7",
+    "url": "https://github.com/treebird7"
+  },
+  "homepage": "https://github.com/treebird7/treebird-oss-skills",
+  "repository": "https://github.com/treebird7/treebird-oss-skills",
+  "license": "MIT",
+  "keywords": [
+    "claude-code",
+    "plugin",
+    "typescript",
+    "javascript",
+    "security",
+    "review",
+    "audit"
+  ]
+}

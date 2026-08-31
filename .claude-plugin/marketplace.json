@@ -1,7 +1,7 @@
 {
   "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
   "name": "treebird-oss-skills",
-  "description": "Public Claude Code skills from the Treebird flock — cross-model review workflows for OpenAI Codex, and a multi-tenant Supabase RLS leak audit",
+  "description": "Public Claude Code skills from the Treebird flock — cross-model workflows for driving and cross-checking other coding CLIs, audit skills that review any repo, plus review disciplines for hooks and onboarding flows",
   "owner": {
     "name": "treebird7",
     "url": "https://github.com/treebird7"
@@ -56,6 +56,121 @@
         "bola",
         "idor",
         "object-level-authorization"
+      ]
+    },
+    {
+      "name": "skill-hooks-create",
+      "source": "./plugins/skill-hooks-create",
+      "description": "Hook-authoring protocol — grills you through the portability, blocking, and silent-failure patterns before a single line of hook code gets written",
+      "version": "1.0.0",
+      "category": "development",
+      "homepage": "https://github.com/treebird7/treebird-oss-skills",
+      "tags": [
+        "skill",
+        "hooks",
+        "claude-code",
+        "git-hooks",
+        "codex",
+        "copilot",
+        "opencode"
+      ]
+    },
+    {
+      "name": "skill-ux-foolproof-review",
+      "source": "./plugins/skill-ux-foolproof-review",
+      "description": "Execute your own onboarding flow as a complete stranger — cold environment, zero credentials, zero tribal knowledge — and log every point of friction as a product bug",
+      "version": "1.0.0",
+      "category": "testing",
+      "homepage": "https://github.com/treebird7/treebird-oss-skills",
+      "tags": [
+        "skill",
+        "ux",
+        "onboarding",
+        "review",
+        "developer-experience",
+        "qa"
+      ]
+    },
+    {
+      "name": "skill-opencode",
+      "source": "./plugins/skill-opencode",
+      "description": "Delegate builds, refactors, and analysis to the opencode CLI — scaffolding, session resume, and a critical pass over what it returns",
+      "version": "1.0.0",
+      "category": "development",
+      "homepage": "https://github.com/treebird7/treebird-oss-skills",
+      "tags": [
+        "skill",
+        "opencode",
+        "multi-model",
+        "automation",
+        "refactoring"
+      ]
+    },
+    {
+      "name": "skill-privacy-review",
+      "source": "./plugins/skill-privacy-review",
+      "description": "A fearless privacy inventory of any app holding sensitive user data — hunts the gap between the privacy the product promises and what the code actually enforces",
+      "version": "2.0.0",
+      "category": "security",
+      "homepage": "https://github.com/treebird7/treebird-oss-skills",
+      "tags": [
+        "skill",
+        "privacy",
+        "security",
+        "review",
+        "audit",
+        "rls"
+      ]
+    },
+    {
+      "name": "skill-sql-review",
+      "source": "./plugins/skill-sql-review",
+      "description": "Review SQL migrations and queries in any repo — migration safety, RLS correctness, function security, privilege drift, concurrency races, blanket grants, query quality",
+      "version": "2.0.0",
+      "category": "security",
+      "homepage": "https://github.com/treebird7/treebird-oss-skills",
+      "tags": [
+        "skill",
+        "sql",
+        "postgres",
+        "rls",
+        "security",
+        "review",
+        "migrations",
+        "audit"
+      ]
+    },
+    {
+      "name": "skill-ts-review",
+      "source": "./plugins/skill-ts-review",
+      "description": "Security-scoped TypeScript/JS review — input validation, subprocess spawning, env leakage, path traversal, file permissions, error discipline, CSP transport coverage",
+      "version": "2.0.0",
+      "category": "security",
+      "homepage": "https://github.com/treebird7/treebird-oss-skills",
+      "tags": [
+        "skill",
+        "typescript",
+        "javascript",
+        "security",
+        "review",
+        "audit"
+      ]
+    },
+    {
+      "name": "skill-node-review",
+      "source": "./plugins/skill-node-review",
+      "description": "Review the JS/Node package & build layer — lockfile integrity (drift that installs but fails npm ci), package-manager hygiene, dependency-bump safety, runtime compatibility",
+      "version": "2.0.0",
+      "category": "development",
+      "homepage": "https://github.com/treebird7/treebird-oss-skills",
+      "tags": [
+        "skill",
+        "node",
+        "npm",
+        "pnpm",
+        "lockfile",
+        "supply-chain",
+        "review"
       ]
     }
   ]

@@ -2,24 +2,69 @@
 
 Public [Claude Code](https://claude.com/claude-code) skills from the Treebird flock.
 
+Three families: skills that drive *another* coding CLI from inside Claude Code, skills
+that audit a repo or review it with deliberately cold eyes, and one that grills you
+before you write a hook.
+
+### Cross-model — drive another coding CLI
+
 | Plugin | Command | What it does |
 |---|---|---|
 | `skill-codex` | `/codex` | Delegate a task to the Codex CLI — model selection, sandbox modes, contract-driven dispatch, and the hang modes that bite in headless runs |
 | `skill-clodex` | `/clodex` | Two-model adversarial review under a negotiated contract — each verifies the other's claims, then the fixes split by disjoint file set and land in one build |
-| `skill-rls-audit` | `/rls-audit` | Audit a deployed Supabase project for multi-tenant RLS leaks — and *demonstrate* isolation with a two-tenant black-box matrix rather than inspecting it |
+| `skill-opencode` | `/opencode` | Dispatch builds and refactors to the opencode CLI across its cloud models, then review what comes back instead of accepting it |
 
-The first two are for working with OpenAI Codex from inside Claude Code — one to *drive*
-it, one to *disagree* with it. The third is unrelated to Codex and has no dependency on it.
+### Audit — review any repo, no ecosystem dependencies
+
+These four detect the DB, ORM, and language from the repo itself. They assume no shared knowledge
+tree, no training pipeline, and no particular provider. Run together they're a full sweep of a
+TS/Node app: **privacy-review** (what leaks) → **ts-review** (trust-boundary code) →
+**sql-review** (DB/RLS in the migrations) → **rls-audit** (DB/RLS as actually deployed) →
+**node-review** (supply chain).
+
+`sql-review` reads what the migrations *say*; `rls-audit` proves what the running project
+*does*. Neither substitutes for the other.
+
+| Plugin | Command | What it does |
+|---|---|---|
+| `skill-rls-audit` | `/rls-audit` | Audit a deployed Supabase project for multi-tenant RLS leaks — and *demonstrate* isolation with a two-tenant black-box matrix rather than inspecting it |
+| `skill-privacy-review` | `/privacy-review` | A fearless privacy inventory of an app holding sensitive user data — hunt the gap between the privacy you promise and what the code enforces |
+| `skill-sql-review` | `/sql-review` | SQL migrations & queries: migration safety, RLS correctness, function security, live privilege drift, concurrency races, blanket grants |
+| `skill-ts-review` | `/ts-review` | Security-scoped TS/JS: input validation, subprocess spawning, env leakage, path traversal, file permissions, error discipline, CSP transport coverage |
+| `skill-node-review` | `/node-review` | Package & build layer: lockfile integrity (`npm ci` drift), package-manager hygiene, dependency-bump safety, runtime compatibility |
+
+All four report `✅ / ⚠️ / ❌` per check and accept `--gold` — see [Gold pairs](#gold-pairs-gold).
+
+### Cold-eyes review
+
+| Plugin | Command | What it does |
+|---|---|---|
+| `skill-ux-foolproof-review` | `/ux-foolproof-review` | Run your own onboarding flow as a complete stranger — cold machine, zero credentials, zero tribal knowledge — and log every friction point as a product bug |
+
+### Authoring discipline
+
+| Plugin | Command | What it does |
+|---|---|---|
+| `skill-hooks-create` | `/hooks-create` | Grill yourself through the portability, blocking, and silent-failure patterns *before* writing an AI-CLI or git hook |
 
 ## Requirements
 
 - Claude Code.
-- **For `/codex` and `/clodex` only:** the `codex` CLI on your `PATH` (verify with
-  `codex --version` and resolve any errors before installing — both skills shell out to it)
-  and a working Codex login (ChatGPT sign-in, device auth, or an API key).
+- Each cross-model skill shells out to its own CLI — install only the ones you'll use:
+
+  | Plugin | Needs | Verify |
+  |---|---|---|
+  | `skill-codex`, `skill-clodex` | `codex` CLI + a working login (ChatGPT sign-in, device auth, or API key) | `codex --version` |
+  | `skill-opencode` | `opencode` CLI + credentials for at least one provider | `opencode --version` |
+
+  Resolve any errors from those before installing — the skills assume the CLI runs.
 - **For `/rls-audit` only:** read access to the Supabase project you're auditing — the
   Supabase CLI linked to it (`supabase link`), the Supabase MCP server, or the SQL editor.
   `psql`, `curl`, and `jq` for the two-tenant matrix.
+- The audit, review, and authoring skills (`privacy-review`, `sql-review`, `ts-review`,
+  `node-review`, `ux-foolproof-review`, `hooks-create`) need nothing beyond Claude Code and the
+  repo you're pointing them at. `/sql-review --live` additionally wants `psql` and a reachable
+  `$DATABASE_URL`; without them it reports those checks as skipped rather than failing.
 
 ## Installation
 
@@ -29,27 +74,36 @@ it, one to *disagree* with it. The third is unrelated to Codex and has no depend
 /plugin marketplace add treebird7/treebird-oss-skills
 /plugin install skill-codex@treebird-oss-skills
 /plugin install skill-clodex@treebird-oss-skills
+/plugin install skill-opencode@treebird-oss-skills
+/plugin install skill-ux-foolproof-review@treebird-oss-skills
 /plugin install skill-rls-audit@treebird-oss-skills
+/plugin install skill-privacy-review@treebird-oss-skills
+/plugin install skill-sql-review@treebird-oss-skills
+/plugin install skill-ts-review@treebird-oss-skills
+/plugin install skill-node-review@treebird-oss-skills
+/plugin install skill-hooks-create@treebird-oss-skills
 ```
 
+Install only what you want — the plugins are independent, with one exception:
 `/clodex` calls into `/codex` for pre-flight login, error handling, and the Codex CLI
 flag/model mechanics, so `skill-clodex` declares `skill-codex` as a plugin dependency.
-Installing `skill-clodex` pulls `skill-codex` in with it — the line above is there so
-you can install `/codex` on its own, not because you must install both by hand.
+Installing `skill-clodex` pulls `skill-codex` in with it.
 
 ### Option 2 — Standalone skills
 
 ```bash
 git clone --depth 1 https://github.com/treebird7/treebird-oss-skills.git /tmp/treebird-oss-skills && \
 mkdir -p ~/.claude/skills && \
-cp -r /tmp/treebird-oss-skills/plugins/skill-codex/skills/codex         ~/.claude/skills/codex && \
-cp -r /tmp/treebird-oss-skills/plugins/skill-clodex/skills/clodex       ~/.claude/skills/clodex && \
-cp -r /tmp/treebird-oss-skills/plugins/skill-rls-audit/skills/rls-audit ~/.claude/skills/rls-audit && \
+for s in codex clodex opencode privacy-review rls-audit sql-review ts-review node-review \
+         ux-foolproof-review hooks-create; do \
+  cp -r /tmp/treebird-oss-skills/plugins/skill-$s/skills/$s ~/.claude/skills/$s; \
+done && \
 rm -rf /tmp/treebird-oss-skills
 ```
 
-`/rls-audit` ships a companion file (`tenant-matrix.md`) alongside its `SKILL.md`; copy the
-whole directory, not just the `SKILL.md`.
+Drop any skill you don't want from that `for` list. `/rls-audit` ships a companion file
+(`tenant-matrix.md`) alongside its `SKILL.md` — the loop copies whole directories, which is
+what you want.
 
 ## `/codex` — delegate to Codex
 
@@ -113,6 +167,31 @@ Design constraints worth knowing before you use it:
   point it at a rename; use it where being wrong is expensive and green CI proves
   little.
 
+## `/opencode` — dispatch to opencode
+
+> Have opencode scaffold the CLI skeleton, then check its work.
+
+Two modes: scaffold a project from nothing, or hand it a scoped change in an existing
+repo. Either way the skill's position is that **opencode's output is a draft, not a
+result** — it dispatches, resumes the session when the work spans turns, and then reads
+the diff critically rather than reporting success because the command exited 0.
+
+Its model table carries the same dated-floor caveat as `/codex` — see
+[Models and freshness](#models-and-freshness).
+
+## `/ux-foolproof-review` — be the stranger
+
+> Foolproof our install flow before we publish it.
+
+Most onboarding review imagines a new user. This one *is* one: cold environment, no repo
+checkout, no env vars, no secrets manager, no memory of the design discussions. Every
+place the reviewer has to guess, re-read, or reach for knowledge they were never given is
+filed as a product bug — not a docs nit.
+
+The honest part: if you can't actually fake cold — an already-logged-in CLI, a cached
+credential, a machine-wide config leaks in — the skill makes you **name what leaked**
+rather than quietly benefit from it.
+
 ## `/rls-audit` — prove your tenants are actually isolated
 
 > Audit this project for RLS leaks before we onboard the second customer.
@@ -172,9 +251,103 @@ Design constraints worth knowing:
   must each return zero rows — so the table added next month can't quietly reintroduce
   what you just fixed.
 
+## `/sql-review` — migrations, RLS, and the grants nobody migrated
+
+> Review this migration before we deploy it.
+
+Seven checks over a `.sql` migration, a Prisma/Drizzle schema, or a raw query. The two that earn
+their keep:
+
+- **Function security triaged by *identity source*, not by grant.** The question isn't "does this have a REVOKE" — it's whose identity the function acts on. A `SECURITY DEFINER` function that derives identity from `auth.uid()` is safe even when PUBLIC-callable; one that takes a `user_id` **parameter** and trusts it is a cross-user read/write with RLS bypassed by design. Grading those the same way buries the real hole under hygiene noise, so the skill refuses to.
+- **Privilege drift (`--live`).** Drift isn't only columns. A "hardening" migration whose `REVOKE` never ran, or whose `DROP POLICY IF EXISTS` names a policy that doesn't exist live, reads as done and leaves the hole open. The skill queries actual grants and live policy names before believing the migration.
+
+It also catches the `CREATE OR REPLACE` silent revert — redefining a function from an *older* base
+than the deployed one drops any guard added in between, with no merge, no conflict, and a green
+test suite.
+
+## `/ts-review` — only where TS crosses a trust boundary
+
+> Review this runner module.
+
+Seven checks, and a scope heuristic that skips pure logic: it fires only on code touching
+`child_process`, `fs` with a user-derived path, `process.env`, or a user string headed for a path,
+subprocess, shell, regex, or query. `tsc` and ESLint already own style — this owns the exploit paths.
+
+Check 7 is the one people don't expect: a CSP granting `https://<host>` for a host also used as a
+**websocket** backend, with no `wss://` twin. Browsers don't scheme-match the two, so the socket is
+blocked, the client library retries quietly forever, and nothing throws. It presents as "realtime is
+just flaky" until someone reads a `securitypolicyviolation` event.
+
+## `/node-review` — the package layer
+
+> Check this dependency bump before I merge it.
+
+Four checks on the failure modes that pass `npm install` and fail `npm ci`: lockfile drift committed
+after a partial update, two lockfiles in one repo with no `packageManager` pin to stop a third, a
+major test-runner bump that silently drops a Node version still in the CI matrix, and a CVE patch
+taken at latest-major when a minimal-compatible patch exists in the supported line.
+
+The skill refuses to claim a lockfile is broken without running `npm ci` — a review that guesses at
+reproducibility is worth nothing.
+
+## `/privacy-review` — the gap between promise and enforcement
+
+> Run a privacy review before this goes public.
+
+For an app that holds people's private writing, notes, journals, health data. The goal
+isn't a compliance checklist and it isn't reassurance — it's finding where the code's
+actual behavior diverges from the privacy the product promises, while there's still time
+to close the gap for free.
+
+## `/hooks-create` — grill before you write
+
+> Add a PreToolUse hook that blocks `npm` commands.
+
+Hooks fail in a specific, nasty way: they run on every action, they run outside your
+attention, and when they break they usually break *silently* — the log line never
+written, the block that never fired, the path that only resolves on the author's machine.
+
+So this skill refuses to write hook code first. It walks the surface (Claude Code /
+Copilot CLI / Codex CLI / opencode / git), the event, the single job the hook does, the
+failure mode, and the portability traps — then writes. Every skipped question is a
+bug-shaped opening.
+
+## Gold pairs (`--gold`)
+
+The four audit skills accept `--gold`. When set, each **verified** finding — and each verified
+`clear` — is appended as one JSON line to `.audit/gold-pairs.jsonl` in the reviewed repo. They're
+review-decision training examples: portable, schema-documented, and yours to keep.
+
+```jsonc
+{
+  "schema": "audit-kit/gold-pair@1",
+  "skill": "sql-review",             // sql-review | privacy-review | ts-review | node-review
+  "check": "rls_correctness",        // the check id that produced it
+  "severity": "error",               // error | warning | info | critical | high | medium | clear
+  "repo": "owner/name",              // best-effort from `git remote`; "" if none
+  "commit": "81b2c7b",               // short HEAD at review time
+  "path": "prisma/schema.prisma:42", // file:line (or file: if line unknown)
+  "lang": "sql",                     // detected language/ORM tag
+  "snippet": "CREATE TABLE ...",     // the reviewed code, secrets redacted
+  "finding": "table created without ENABLE ROW LEVEL SECURITY",
+  "fix": "ALTER TABLE x ENABLE ROW LEVEL SECURITY; + per-op policies",
+  "verified": true,                  // only verified findings are emitted
+  "false_alarm_of": null             // if set, names a dismissed claim — a negative example
+}
+```
+
+**Why `verified` matters:** a gold pair is only worth keeping if the finding was confirmed against
+the actual source rather than pattern-matched in the abstract. Every audit skill runs a verify step
+and emits a pair only on a confirmed verdict — including confirmed *non*-findings
+(`severity: "clear"`, or `false_alarm_of` set), which are the most valuable negative examples.
+
+The file carries no secrets — only the snippet, the verdict, and the fix — and the emitting skill
+must redact secret values from `snippet` (keys, tokens, connection strings → `‹redacted›`). That
+makes it safe to hand back after reviewing someone else's repo.
+
 ## Models and freshness
 
-The two Codex skills carry a dated model table rather than relying on memory, because model
+`/codex`, `/clodex`, and `/opencode` carry a dated model table rather than relying on memory, because model
 knowledge goes stale in weeks and a stale table is worse than none — the agent
 confidently reaches for a model that no longer exists.
 
@@ -234,6 +407,10 @@ Issues and PRs welcome, particularly:
   standing cases missed is the single most valuable contribution to that skill — a case
   costs one line and then runs forever. `tenant-matrix.md` lists the candidates already
   suspected but not yet written up.
+- Failure modes the audit skills missed on a real codebase, and the check that would
+  have caught them.
+- New checks for `/sql-review` on dialects beyond Postgres — MySQL and SQLite currently
+  fall through as `⚪ skipped` on the RLS and function-security checks.
 
 ## License
 

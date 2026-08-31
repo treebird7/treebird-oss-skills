@@ -1,0 +1,21 @@
+{
+  "name": "skill-ux-foolproof-review",
+  "description": "Claude Code skill that reviews an onboarding, setup, or connect flow by actually running it cold, as a first-time user with nothing configured",
+  "version": "1.0.0",
+  "author": {
+    "name": "treebird7",
+    "url": "https://github.com/treebird7"
+  },
+  "homepage": "https://github.com/treebird7/treebird-oss-skills",
+  "repository": "https://github.com/treebird7/treebird-oss-skills",
+  "license": "MIT",
+  "keywords": [
+    "claude-code",
+    "plugin",
+    "ux",
+    "onboarding",
+    "review",
+    "developer-experience",
+    "qa"
+  ]
+}
