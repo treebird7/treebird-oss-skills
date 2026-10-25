@@ -11,7 +11,7 @@
       "name": "skill-codex",
       "source": "./plugins/skill-codex",
       "description": "Delegate prompts to the OpenAI Codex CLI for code analysis, refactoring, code review, and automated editing",
-      "version": "2.0.1",
+      "version": "2.0.2",
       "category": "development",
       "homepage": "https://github.com/treebird7/treebird-oss-skills",
       "tags": [
@@ -42,7 +42,7 @@
       "name": "skill-rls-audit",
       "source": "./plugins/skill-rls-audit",
       "description": "Audit a deployed Supabase project for multi-tenant RLS leaks — policy shape, tenant-claim provenance, the bypass surfaces RLS never covers, and a two-tenant black-box proof",
-      "version": "1.0.1",
+      "version": "1.0.2",
       "category": "development",
       "homepage": "https://github.com/treebird7/treebird-oss-skills",
       "tags": [
@@ -126,7 +126,7 @@
       "name": "skill-sql-review",
       "source": "./plugins/skill-sql-review",
       "description": "Review SQL migrations and queries in any repo — migration safety, RLS correctness, function security, privilege drift, concurrency races, blanket grants, query quality",
-      "version": "2.0.0",
+      "version": "2.0.1",
       "category": "security",
       "homepage": "https://github.com/treebird7/treebird-oss-skills",
       "tags": [

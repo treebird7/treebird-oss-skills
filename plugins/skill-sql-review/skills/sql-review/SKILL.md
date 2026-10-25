@@ -189,7 +189,7 @@ actually deployed.
 - ❌ `ALTER TABLE ... DISABLE ROW LEVEL SECURITY` / `NO FORCE` on a client-exposed table.
 
 ## Check 6 — query_review (raw queries / ORM `$queryRaw` etc.)
-- ❌ String-concatenated/interpolated user input into SQL → injection. Require parameterized (`$1`, prepared, tagged ``sql` ` ``).
+- ❌ String-concatenated/interpolated user input into SQL → injection. Require parameterized (numbered placeholders, prepared, tagged ``sql` ` ``).
 - ⚠️ Tenant table queried with no tenant predicate in app code (the "forgot the `where ownerId`" leak). For ORMs, flag `findUnique/findMany` on a tenant model whose `where` lacks the owner key.
 - ⚠️ `SELECT *` returning encrypted/sensitive columns into a response unfiltered; N+1 in a loop; missing `LIMIT` on an unbounded user-facing list.
 

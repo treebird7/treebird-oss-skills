@@ -872,7 +872,8 @@ isn't live is stale and warns.
 ```bash
 # per rule: live set minus allowlist must be empty
 psql "$DATABASE_URL" -Atc "$QUERY" | sort > /tmp/live.txt
-grep -vE '^\s*(#|$)' .rls-gate/$RULE.allow | awk '{print $1}' | sort > /tmp/allow.txt
+# awk fields are $(N), not bare dollar-digit: Claude Code swaps those for the skill's ARGUMENTS.
+grep -vE '^\s*(#|$)' .rls-gate/$RULE.allow | awk '{print $(1)}' | sort > /tmp/allow.txt
 comm -23 /tmp/live.txt /tmp/allow.txt | tee /tmp/new.txt
 [ ! -s /tmp/new.txt ] || { echo "unreviewed $RULE:"; cat /tmp/new.txt; exit 1; }
 comm -13 /tmp/live.txt /tmp/allow.txt | sed 's/^/stale allowlist entry: /'   # warn only

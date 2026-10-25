@@ -310,7 +310,8 @@ Do this instead:
 
 ```bash
 wait "$codex_pid"                        # exited process cannot flush more writes
-snap() { git status --porcelain | awk '{print $2}' | xargs shasum 2>/dev/null; }
+# awk fields are $(N), not bare dollar-digit: Claude Code swaps those for the skill's ARGUMENTS.
+snap() { git status --porcelain | awk '{print $(2)}' | xargs shasum 2>/dev/null; }
 a=$(snap); sleep 5; b=$(snap)
 [ "$a" = "$b" ] && echo "tree stable"
 ```
