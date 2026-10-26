@@ -3,8 +3,8 @@
 Public [Claude Code](https://claude.com/claude-code) skills from the Treebird flock.
 
 Three families: skills that drive *another* coding CLI from inside Claude Code, skills
-that audit a repo or review it with deliberately cold eyes, and one that grills you
-before you write a hook.
+that audit a repo or review it with deliberately cold eyes, one that grills you
+before you write a hook, and one that trims the memory Claude Code loads at startup.
 
 ### Cross-model — drive another coding CLI
 
@@ -47,6 +47,12 @@ All four report `✅ / ⚠️ / ❌` per check and accept `--gold` — see [Gold
 |---|---|---|
 | `skill-hooks-create` | `/hooks-create` | Grill yourself through the portability, blocking, and silent-failure patterns *before* writing an AI-CLI or git hook |
 
+### Context hygiene
+
+| Plugin | Command | What it does |
+|---|---|---|
+| `skill-memory-trim` | `/memory-trim` | Measure startup context with headless `/context`, trim stale auto-memory after verifying each claim, and prove the saving with before/after numbers |
+
 ## Requirements
 
 - Claude Code.
@@ -82,6 +88,7 @@ All four report `✅ / ⚠️ / ❌` per check and accept `--gold` — see [Gold
 /plugin install skill-ts-review@treebird-oss-skills
 /plugin install skill-node-review@treebird-oss-skills
 /plugin install skill-hooks-create@treebird-oss-skills
+/plugin install skill-memory-trim@treebird-oss-skills
 ```
 
 Install only what you want — the plugins are independent, with one exception:
@@ -95,7 +102,7 @@ Installing `skill-clodex` pulls `skill-codex` in with it.
 git clone --depth 1 https://github.com/treebird7/treebird-oss-skills.git /tmp/treebird-oss-skills && \
 mkdir -p ~/.claude/skills && \
 for s in codex clodex opencode privacy-review rls-audit sql-review ts-review node-review \
-         ux-foolproof-review hooks-create; do \
+         ux-foolproof-review hooks-create memory-trim; do \
   cp -r /tmp/treebird-oss-skills/plugins/skill-$s/skills/$s ~/.claude/skills/$s; \
 done && \
 rm -rf /tmp/treebird-oss-skills

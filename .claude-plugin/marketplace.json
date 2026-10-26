@@ -172,6 +172,21 @@
         "supply-chain",
         "review"
       ]
+    },
+    {
+      "name": "skill-memory-trim",
+      "source": "./plugins/skill-memory-trim",
+      "description": "Measure and trim what Claude Code loads at startup — auto-memory, the MEMORY.md index and the CLAUDE.md chain — with before/after /context numbers and a verify-before-delete rule",
+      "version": "1.1.0",
+      "category": "productivity",
+      "homepage": "https://github.com/treebird7/treebird-oss-skills",
+      "tags": [
+        "skill",
+        "memory",
+        "context",
+        "claude-md",
+        "hygiene"
+      ]
     }
   ]
 }
