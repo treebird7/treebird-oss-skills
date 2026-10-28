@@ -53,6 +53,12 @@ All four report `✅ / ⚠️ / ❌` per check and accept `--gold` — see [Gold
 |---|---|---|
 | `skill-memory-trim` | `/memory-trim` | Measure startup context with headless `/context`, trim stale auto-memory after verifying each claim, and prove the saving with before/after numbers |
 
+### Multi-agent git
+
+| Plugin | Command | What it does |
+|---|---|---|
+| `skill-spidersan` | `/spidersan` | Coordinate parallel branches with the spidersan CLI: conflict tiers, a *real* merge check of a PR against every other open PR, and branch tidying |
+
 ## Requirements
 
 - Claude Code.
@@ -89,6 +95,7 @@ All four report `✅ / ⚠️ / ❌` per check and accept `--gold` — see [Gold
 /plugin install skill-node-review@treebird-oss-skills
 /plugin install skill-hooks-create@treebird-oss-skills
 /plugin install skill-memory-trim@treebird-oss-skills
+/plugin install skill-spidersan@treebird-oss-skills
 ```
 
 Install only what you want — the plugins are independent, with one exception:
@@ -318,6 +325,20 @@ So this skill refuses to write hook code first. It walks the surface (Claude Cod
 Copilot CLI / Codex CLI / opencode / git), the event, the single job the hook does, the
 failure mode, and the portability traps — then writes. Every skipped question is a
 bug-shaped opening.
+
+## `/spidersan` — intent from the registry, merges from git
+
+> Will PR 41 conflict with anything that's open?
+
+Spidersan's registry records which branch *intends* to change which files, which is useful
+for announcing work and useless for deciding a merge: it can't see a branch nobody
+registered. So this skill keeps the two apart. The registry is for intent, and `git merge-tree`
+answers merge questions. `bin/pr-conflicts <N>` merges PR N onto its base, then merges every
+other open PR onto that, and reports only the conflicts N would add. Needs the `spidersan` CLI
+(`npm i -g spidersan`), plus `gh`, `jq` and git 2.38 or newer for `pr-conflicts`.
+
+The same skill ships inside the spidersan plugin (`treebird7/spidersan-oss`) together with git
+safety hooks. Install one or the other, not both.
 
 ## Gold pairs (`--gold`)
 

@@ -187,6 +187,21 @@
         "claude-md",
         "hygiene"
       ]
+    },
+    {
+      "name": "skill-spidersan",
+      "source": "./plugins/skill-spidersan",
+      "description": "Coordinate parallel branch work between AI agents with the spidersan CLI: conflict tiers, real merge checks against open PRs, branch tidying",
+      "version": "1.0.0",
+      "category": "development",
+      "homepage": "https://github.com/treebird7/treebird-oss-skills",
+      "tags": [
+        "skill",
+        "git",
+        "multi-agent",
+        "merge-conflicts",
+        "spidersan"
+      ]
     }
   ]
 }
